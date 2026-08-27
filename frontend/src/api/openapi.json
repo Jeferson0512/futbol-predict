@@ -1,0 +1,1425 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Futbol Predict API",
+    "description": "API local para prediccion probabilistica 1X2.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtests/football-data-uk": {
+      "get": {
+        "summary": "Football Data Uk Backtest",
+        "operationId": "football_data_uk_backtest_backtests_football_data_uk_get",
+        "parameters": [
+          {
+            "name": "season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "2526",
+              "title": "Season"
+            }
+          },
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 4,
+              "default": "E0",
+              "title": "Division"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtests/football-data-uk/big-five": {
+      "get": {
+        "summary": "Football Data Uk Big Five Backtest",
+        "operationId": "football_data_uk_big_five_backtest_backtests_football_data_uk_big_five_get",
+        "parameters": [
+          {
+            "name": "start_season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "1617",
+              "title": "Start Season"
+            }
+          },
+          {
+            "name": "end_season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "2526",
+              "title": "End Season"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtests/db/football-data-uk": {
+      "get": {
+        "summary": "Db Football Data Uk Backtest",
+        "operationId": "db_football_data_uk_backtest_backtests_db_football_data_uk_get",
+        "parameters": [
+          {
+            "name": "season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "2526",
+              "title": "Season"
+            }
+          },
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 4,
+              "default": "E0",
+              "title": "Division"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtests/db/big-five": {
+      "get": {
+        "summary": "Db Big Five Backtest",
+        "operationId": "db_big_five_backtest_backtests_db_big_five_get",
+        "parameters": [
+          {
+            "name": "start_season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "1617",
+              "title": "Start Season"
+            }
+          },
+          {
+            "name": "end_season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}$",
+              "default": "2526",
+              "title": "End Season"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/predictions/status": {
+      "get": {
+        "summary": "Prediction Status",
+        "operationId": "prediction_status_predictions_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calibration/status": {
+      "get": {
+        "summary": "Calibration Status",
+        "operationId": "calibration_status_calibration_status_get",
+        "parameters": [
+          {
+            "name": "bins",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 10,
+              "title": "Bins"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calibration/curves": {
+      "get": {
+        "summary": "Calibration Curves",
+        "operationId": "calibration_curves_calibration_curves_get",
+        "parameters": [
+          {
+            "name": "bins",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 10,
+              "title": "Bins"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationCurveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models/rankings": {
+      "get": {
+        "summary": "Model Rankings",
+        "operationId": "model_rankings_models_rankings_get",
+        "parameters": [
+          {
+            "name": "min_matches",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100,
+              "title": "Min Matches"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRankingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models/champion": {
+      "get": {
+        "summary": "Champion Model",
+        "operationId": "champion_model_models_champion_get",
+        "parameters": [
+          {
+            "name": "min_matches",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100,
+              "title": "Min Matches"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRankingRowResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fixtures/upcoming": {
+      "get": {
+        "summary": "Upcoming Fixtures",
+        "operationId": "upcoming_fixtures_fixtures_upcoming_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 120,
+              "minimum": 1,
+              "default": 14,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Divisions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpcomingFixturesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fixtures/predictions": {
+      "get": {
+        "summary": "Fixture Predictions",
+        "operationId": "fixture_predictions_fixtures_predictions_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 120,
+              "minimum": 1,
+              "default": 14,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "default": "best_available",
+              "title": "Model"
+            }
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Divisions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixturePredictionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BacktestBreakdownResponse": {
+        "properties": {
+          "group_type": {
+            "type": "string",
+            "title": "Group Type"
+          },
+          "group_key": {
+            "type": "string",
+            "title": "Group Key"
+          },
+          "n_matches": {
+            "type": "integer",
+            "title": "N Matches"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestMetricResponse"
+            },
+            "type": "array",
+            "title": "Metrics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_type",
+          "group_key",
+          "n_matches",
+          "metrics"
+        ],
+        "title": "BacktestBreakdownResponse"
+      },
+      "BacktestMetricResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "n_matches": {
+            "type": "integer",
+            "title": "N Matches"
+          },
+          "rps": {
+            "type": "number",
+            "title": "Rps"
+          },
+          "log_loss": {
+            "type": "number",
+            "title": "Log Loss"
+          },
+          "brier": {
+            "type": "number",
+            "title": "Brier"
+          },
+          "accuracy": {
+            "type": "number",
+            "title": "Accuracy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "n_matches",
+          "rps",
+          "log_loss",
+          "brier",
+          "accuracy"
+        ],
+        "title": "BacktestMetricResponse"
+      },
+      "BacktestResponse": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "start_season": {
+            "type": "string",
+            "title": "Start Season"
+          },
+          "end_season": {
+            "type": "string",
+            "title": "End Season"
+          },
+          "divisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Divisions"
+          },
+          "n_matches": {
+            "type": "integer",
+            "title": "N Matches"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestMetricResponse"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "breakdowns": {
+            "items": {
+              "$ref": "#/components/schemas/BacktestBreakdownResponse"
+            },
+            "type": "array",
+            "title": "Breakdowns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "source",
+          "start_season",
+          "end_season",
+          "divisions",
+          "n_matches",
+          "metrics",
+          "breakdowns"
+        ],
+        "title": "BacktestResponse"
+      },
+      "CalibrationCurvePointResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "feature_set_version": {
+            "type": "string",
+            "title": "Feature Set Version"
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "n_bins": {
+            "type": "integer",
+            "title": "N Bins"
+          },
+          "bin_index": {
+            "type": "integer",
+            "title": "Bin Index"
+          },
+          "bin_lower": {
+            "type": "number",
+            "title": "Bin Lower"
+          },
+          "bin_upper": {
+            "type": "number",
+            "title": "Bin Upper"
+          },
+          "n_predictions": {
+            "type": "integer",
+            "title": "N Predictions"
+          },
+          "avg_predicted_probability": {
+            "type": "number",
+            "title": "Avg Predicted Probability"
+          },
+          "observed_frequency": {
+            "type": "number",
+            "title": "Observed Frequency"
+          },
+          "calibration_error": {
+            "type": "number",
+            "title": "Calibration Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "algorithm",
+          "feature_set_version",
+          "outcome",
+          "n_bins",
+          "bin_index",
+          "bin_lower",
+          "bin_upper",
+          "n_predictions",
+          "avg_predicted_probability",
+          "observed_frequency",
+          "calibration_error"
+        ],
+        "title": "CalibrationCurvePointResponse"
+      },
+      "CalibrationCurveResponse": {
+        "properties": {
+          "n_bins": {
+            "type": "integer",
+            "title": "N Bins"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationCurvePointResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_bins",
+          "model",
+          "rows"
+        ],
+        "title": "CalibrationCurveResponse"
+      },
+      "CalibrationStatusResponse": {
+        "properties": {
+          "n_bins": {
+            "type": "integer",
+            "title": "N Bins"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationStatusRowResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n_bins",
+          "rows"
+        ],
+        "title": "CalibrationStatusResponse"
+      },
+      "CalibrationStatusRowResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "feature_set_version": {
+            "type": "string",
+            "title": "Feature Set Version"
+          },
+          "model_versions": {
+            "type": "integer",
+            "title": "Model Versions"
+          },
+          "bins": {
+            "type": "integer",
+            "title": "Bins"
+          },
+          "class_samples": {
+            "type": "integer",
+            "title": "Class Samples"
+          },
+          "calibration_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "algorithm",
+          "feature_set_version",
+          "model_versions",
+          "bins",
+          "class_samples",
+          "calibration_error"
+        ],
+        "title": "CalibrationStatusRowResponse"
+      },
+      "FixtureModelPredictionResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "feature_set_version": {
+            "type": "string",
+            "title": "Feature Set Version"
+          },
+          "prob_home": {
+            "type": "number",
+            "title": "Prob Home"
+          },
+          "prob_draw": {
+            "type": "number",
+            "title": "Prob Draw"
+          },
+          "prob_away": {
+            "type": "number",
+            "title": "Prob Away"
+          },
+          "train_window_start_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Window Start Utc"
+          },
+          "train_window_end_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Window End Utc"
+          },
+          "ranking_rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Rps"
+          },
+          "ranking_calibration_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Calibration Error"
+          },
+          "is_recommended": {
+            "type": "boolean",
+            "title": "Is Recommended"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "algorithm",
+          "feature_set_version",
+          "prob_home",
+          "prob_draw",
+          "prob_away",
+          "train_window_start_utc",
+          "train_window_end_utc",
+          "ranking_rps",
+          "ranking_calibration_error",
+          "is_recommended"
+        ],
+        "title": "FixtureModelPredictionResponse"
+      },
+      "FixturePredictionRowResponse": {
+        "properties": {
+          "fixture": {
+            "$ref": "#/components/schemas/FixtureResponse"
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/FixtureModelPredictionResponse"
+            },
+            "type": "array",
+            "title": "Predictions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fixture",
+          "predictions"
+        ],
+        "title": "FixturePredictionRowResponse"
+      },
+      "FixturePredictionsResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "model_mode": {
+            "type": "string",
+            "title": "Model Mode"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FixturePredictionRowResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "days",
+          "model_mode",
+          "rows"
+        ],
+        "title": "FixturePredictionsResponse"
+      },
+      "FixtureResponse": {
+        "properties": {
+          "match_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Id"
+          },
+          "kickoff_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Kickoff Utc"
+          },
+          "season": {
+            "type": "string",
+            "title": "Season"
+          },
+          "division": {
+            "type": "string",
+            "title": "Division"
+          },
+          "home_team": {
+            "type": "string",
+            "title": "Home Team"
+          },
+          "away_team": {
+            "type": "string",
+            "title": "Away Team"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "avg_home_odds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Home Odds"
+          },
+          "avg_draw_odds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Draw Odds"
+          },
+          "avg_away_odds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Away Odds"
+          },
+          "odds_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odds Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "kickoff_utc",
+          "season",
+          "division",
+          "home_team",
+          "away_team",
+          "status",
+          "avg_home_odds",
+          "avg_draw_odds",
+          "avg_away_odds",
+          "odds_source"
+        ],
+        "title": "FixtureResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "app_env": {
+            "type": "string",
+            "title": "App Env"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "app_env"
+        ],
+        "title": "HealthResponse"
+      },
+      "ModelRankingResponse": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ModelRankingRowResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "title": "ModelRankingResponse"
+      },
+      "ModelRankingRowResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "feature_set_version": {
+            "type": "string",
+            "title": "Feature Set Version"
+          },
+          "windows": {
+            "type": "integer",
+            "title": "Windows"
+          },
+          "matches": {
+            "type": "integer",
+            "title": "Matches"
+          },
+          "weighted_rps": {
+            "type": "number",
+            "title": "Weighted Rps"
+          },
+          "weighted_log_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Log Loss"
+          },
+          "weighted_brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Brier"
+          },
+          "weighted_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Accuracy"
+          },
+          "weighted_calibration_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighted Calibration Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "algorithm",
+          "feature_set_version",
+          "windows",
+          "matches",
+          "weighted_rps",
+          "weighted_log_loss",
+          "weighted_brier",
+          "weighted_accuracy",
+          "weighted_calibration_error"
+        ],
+        "title": "ModelRankingRowResponse"
+      },
+      "PredictionStatusResponse": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionStatusRowResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "title": "PredictionStatusResponse"
+      },
+      "PredictionStatusRowResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "algorithm": {
+            "type": "string",
+            "title": "Algorithm"
+          },
+          "feature_set_version": {
+            "type": "string",
+            "title": "Feature Set Version"
+          },
+          "predictions": {
+            "type": "integer",
+            "title": "Predictions"
+          },
+          "evaluated": {
+            "type": "integer",
+            "title": "Evaluated"
+          },
+          "avg_rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Rps"
+          },
+          "avg_log_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Log Loss"
+          },
+          "avg_brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Brier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "algorithm",
+          "feature_set_version",
+          "predictions",
+          "evaluated",
+          "avg_rps",
+          "avg_log_loss",
+          "avg_brier"
+        ],
+        "title": "PredictionStatusRowResponse"
+      },
+      "UpcomingFixturesResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FixtureResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "days",
+          "rows"
+        ],
+        "title": "UpcomingFixturesResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

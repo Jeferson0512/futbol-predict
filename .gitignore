@@ -1,0 +1,32 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+node_modules/
+.env
+.env.local
+.DS_Store
+logs/
+*.log
+*.tsbuildinfo
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+# Root-level scratch data. Backend public handoff caches live under
+# backend/data/raw/ and are intentionally versioned in this snapshot.
+data/raw/
+data/cache/
+data/processed/
+mlruns/
+frontend/dist/
+
+# Project handoff backups are intentionally versioned.
+!backups/
+!backups/**

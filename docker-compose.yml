@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: futbol_predict_postgres
+    environment:
+      POSTGRES_DB: futbol_predict
+      POSTGRES_USER: futbol
+      POSTGRES_PASSWORD: futbol
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U futbol -d futbol_predict"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    container_name: futbol_predict_api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn futpredict.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - ./backend/data:/app/data
+      - ./backend/src:/app/src
+      - ./backend/tests:/app/tests
+
+  worker:
+    build:
+      context: ./backend
+    container_name: futbol_predict_worker
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m futpredict.jobs.weekly --dry-run
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/src:/app/src
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.2.0
+    container_name: futbol_predict_mlflow
+    ports:
+      - "5000:5000"
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: futbol_predict_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    command: npm run dev -- --host 0.0.0.0
+    volumes:
+      - ./frontend/src:/app/src
+
+volumes:
+  postgres_data:
+  mlflow_data:
