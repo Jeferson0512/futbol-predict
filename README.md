@@ -279,6 +279,27 @@ nunca sobrescriben una prediccion ya registrada.
 Para que `freeze-future-predictions-db` tenga fixtures que congelar, primero hay
 que cargar la jornada proxima con `load-big-five-fixtures-db --season <codigo>`.
 
+## Fase 6 - ML tabular
+
+El primer modelo entrenado real es una regresion logistica multinomial sobre el
+feature set `rolling_v1`, evaluada con el mismo walk-forward temporal que los
+baselines (entrena con temporadas previas, predice la de evaluacion, sin
+leakage). Requiere el extra `ml`:
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+uv sync --extra dev --extra ml
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+# Necesita features persistidas (build-rolling-features-db) para 'rolling_v1'.
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-ml-walk-forward-db --start-season 1617 --end-season 2526
+```
+
+La salida ordena por RPS ponderado la logistica junto a los baselines. Hoy la
+logistica supera a `historical_frequency` pero todavia no vence a `elo_simple`
+ni a `market_avg_odds`; los siguientes pasos (xG, boosting, calibracion) buscan
+cerrar esa brecha.
+
 ## Reglas del proyecto
 
 - Nunca usar split aleatorio para validar modelos de partidos.
@@ -290,9 +311,9 @@ que cargar la jornada proxima con `load-big-five-fixtures-db --season <codigo>`.
 
 ## Siguiente objetivo
 
-La Fase 5 quedo implementada a nivel de codigo (`run-weekly`, `promote-champion`,
-`freeze-future-predictions-db`). Lo que resta es la **programacion automatica**:
-dejar el job corriendo cada semana. En esta PC la opcion natural es Windows Task
-Scheduler; alternativas son cron en contenedor o GitHub Actions. Ademas conviene
-definir de donde se refrescan los fixtures futuros (por ahora
-`football-data.co.uk`).
+Fase 5 (automatizacion) esta cerrada y programada con Windows Task Scheduler.
+La Fase 6 arranco con la regresion logistica multinomial ya medida; los proximos
+pasos son xG desde Understat, un modelo de boosting (XGBoost/LightGBM) y
+calibracion Platt/isotonica para intentar superar a Elo y al mercado. En
+paralelo queda la Fase 7 (vista amigable de predicciones, prototipo aprobado) y
+la Fase 8 (expansion a Brasil, Argentina y Liga 1 Peru).

@@ -46,6 +46,7 @@ from futpredict.evaluation.db_walk_forward import (
     WalkForwardPersistenceSummary,
     upsert_walk_forward_metrics,
 )
+from futpredict.evaluation.ml_walk_forward import run_ml_walk_forward
 from futpredict.evaluation.mlflow_tracking import (
     DEFAULT_MLFLOW_EXPERIMENT_NAME,
     MlflowSyncSummary,
@@ -64,6 +65,7 @@ from futpredict.evaluation.walk_forward_predictions import (
 from futpredict.features.db_features import (
     FeaturePersistenceSummary,
     load_feature_matches_from_db,
+    load_feature_payloads_from_db,
     upsert_feature_snapshots,
 )
 from futpredict.features.rolling import (
@@ -353,6 +355,70 @@ def walk_forward_db(
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("backtest-ml-walk-forward-db")
+def backtest_ml_walk_forward_db(
+    start_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_START_SEASON,
+        help="Temporada inicial, por ejemplo 1617.",
+    ),
+    end_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_END_SEASON,
+        help="Temporada final, por ejemplo 2526.",
+    ),
+    initial_train_seasons: int = typer.Option(
+        DEFAULT_INITIAL_TRAIN_SEASONS,
+        help="Temporadas iniciales usadas como entrenamiento historico.",
+    ),
+) -> None:
+    divisions = big_five_division_codes()
+    matches = _load_db_match_results(
+        start_season=start_season,
+        end_season=end_season,
+        divisions=divisions,
+    )
+    payloads = _load_db_feature_payloads(
+        feature_set_version=FEATURE_SET_VERSION,
+        start_season=start_season,
+        end_season=end_season,
+        divisions=divisions,
+    )
+    try:
+        ml_metrics = run_ml_walk_forward(
+            matches,
+            payloads,
+            start_season=start_season,
+            end_season=end_season,
+            initial_train_seasons=initial_train_seasons,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    baseline_metrics = _run_walk_forward_or_exit(
+        matches,
+        start_season=start_season,
+        end_season=end_season,
+        initial_train_seasons=initial_train_seasons,
+    )
+
+    if not ml_metrics:
+        typer.echo(
+            "No hay features suficientes para el modelo logistico. "
+            f"Corre build-rolling-features-db (feature_set_version={FEATURE_SET_VERSION}).",
+            err=True,
+        )
+    combined = [*baseline_metrics, *ml_metrics]
+    ml_windows = {
+        (metric.division, metric.evaluation_season)
+        for metric in ml_metrics
+    }
+    typer.echo(
+        f"Walk-forward ML vs baselines {start_season}-{end_season} - "
+        f"logistic windows={len(ml_windows)}"
+    )
+    _echo_metric_csv(summarize_walk_forward_metrics(combined))
 
 
 @app.command("club-elo-coverage-db")
@@ -1179,6 +1245,33 @@ def _load_db_match_results(
         with SessionLocal() as session:
             return load_match_results_from_db(
                 session,
+                start_season=start_season,
+                end_season=end_season,
+                division_codes=divisions,
+            )
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _load_db_feature_payloads(
+    *,
+    feature_set_version: str,
+    start_season: str,
+    end_season: str,
+    divisions: list[str],
+) -> dict[int, dict[str, float | int | None]]:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            return load_feature_payloads_from_db(
+                session,
+                feature_set_version=feature_set_version,
                 start_season=start_season,
                 end_season=end_season,
                 division_codes=divisions,

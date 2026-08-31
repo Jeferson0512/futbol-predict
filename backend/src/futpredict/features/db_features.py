@@ -75,6 +75,41 @@ def load_feature_matches_from_db(
     return matches
 
 
+def load_feature_payloads_from_db(
+    session: Session,
+    *,
+    feature_set_version: str,
+    start_season: str,
+    end_season: str,
+    division_codes: Sequence[str] | None = None,
+) -> dict[int, dict[str, float | int | None]]:
+    seasons = season_range(start_season, end_season)
+    start_year, _start_end_year = season_years(seasons[0])
+    _end_start_year, end_year = season_years(seasons[-1])
+    league_codes = league_codes_from_divisions(division_codes)
+    if division_codes is not None and not league_codes:
+        return {}
+
+    statement = (
+        select(Feature.match_id, Feature.payload)
+        .join(Match, Match.id == Feature.match_id)
+        .join(League, Match.league_id == League.id)
+        .join(Season, Match.season_id == Season.id)
+        .where(
+            Feature.feature_set_version == feature_set_version,
+            Season.year_start >= start_year,
+            Season.year_end <= end_year,
+        )
+    )
+    if league_codes:
+        statement = statement.where(League.code.in_(league_codes))
+
+    payloads: dict[int, dict[str, float | int | None]] = {}
+    for row in session.execute(statement):
+        payloads[cast(int, row[0])] = cast("dict[str, float | int | None]", row[1])
+    return payloads
+
+
 def upsert_feature_snapshots(
     session: Session,
     snapshots: Sequence[FeatureSnapshot],
