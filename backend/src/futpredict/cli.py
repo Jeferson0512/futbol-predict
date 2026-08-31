@@ -324,6 +324,10 @@ def walk_forward_db(
         False,
         help="Usar solo cache local de Club Elo, sin descargar.",
     ),
+    include_ml: bool = typer.Option(
+        True,
+        help="Incluir el modelo ML (regresion logistica) sobre features rolling_v1.",
+    ),
     dry_run: bool = typer.Option(False, help="Calcular walk-forward sin escribir metricas."),
 ) -> None:
     divisions = big_five_division_codes()
@@ -350,6 +354,16 @@ def walk_forward_db(
         initial_train_seasons=initial_train_seasons,
         extra_prediction_providers=extra_providers,
     )
+    if include_ml:
+        metrics = [
+            *metrics,
+            *_run_ml_walk_forward_or_exit(
+                matches,
+                start_season=start_season,
+                end_season=end_season,
+                initial_train_seasons=initial_train_seasons,
+            ),
+        ]
     _echo_walk_forward_summary(metrics)
     if dry_run:
         typer.echo("Dry run: no database writes executed.")
@@ -1375,6 +1389,32 @@ def _run_walk_forward_or_exit(
             end_season=end_season,
             initial_train_seasons=initial_train_seasons,
             extra_prediction_providers=extra_prediction_providers,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _run_ml_walk_forward_or_exit(
+    matches: list[MatchResult],
+    *,
+    start_season: str,
+    end_season: str,
+    initial_train_seasons: int,
+) -> list[WalkForwardMetric]:
+    payloads = _load_db_feature_payloads(
+        feature_set_version=FEATURE_SET_VERSION,
+        start_season=start_season,
+        end_season=end_season,
+        divisions=big_five_division_codes(),
+    )
+    try:
+        return run_ml_walk_forward(
+            matches,
+            payloads,
+            start_season=start_season,
+            end_season=end_season,
+            initial_train_seasons=initial_train_seasons,
         )
     except ValueError as exc:
         typer.echo(str(exc), err=True)

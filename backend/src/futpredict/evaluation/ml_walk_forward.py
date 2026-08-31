@@ -4,11 +4,15 @@ Paralelo a `run_expanding_walk_forward` (baselines), pero cada ventana entrena
 el modelo sobre las temporadas previas y predice la temporada de evaluacion.
 Mantiene el anti-leakage: solo entrena con partidos de temporadas anteriores y
 usa features cuyo corte es anterior al kickoff del partido.
+
+Es agnostico del modelo: recibe una fabrica que construye un modelo nuevo por
+ventana. Asi la logistica y el boosting reutilizan el mismo recorrido.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Protocol
 
 from futpredict.data.football_data_uk_catalog import season_range
 from futpredict.domain.matches import MatchResult
@@ -27,6 +31,15 @@ from futpredict.models.logistic import (
 MIN_TRAIN_SAMPLES = 50
 
 
+class SupportsMatchProbabilities(Protocol):
+    def fit(self, samples: Sequence[MatchFeatureSample]) -> SupportsMatchProbabilities: ...
+
+    def predict_proba(self, features: FeatureValues) -> tuple[float, float, float]: ...
+
+
+ModelFactory = Callable[[], SupportsMatchProbabilities]
+
+
 def run_ml_walk_forward(
     matches: Sequence[MatchResult],
     feature_payloads: Mapping[int, FeatureValues],
@@ -35,6 +48,8 @@ def run_ml_walk_forward(
     end_season: str,
     initial_train_seasons: int = DEFAULT_INITIAL_TRAIN_SEASONS,
     min_train_samples: int = MIN_TRAIN_SAMPLES,
+    model_factory: ModelFactory = LogisticMatchModel,
+    model_name: str = LOGISTIC_MODEL_NAME,
 ) -> list[WalkForwardMetric]:
     seasons = season_range(start_season, end_season)
     if initial_train_seasons < 1:
@@ -67,8 +82,8 @@ def run_ml_walk_forward(
             if len({sample.outcome for sample in samples}) < 2:
                 continue
 
-            model = LogisticMatchModel().fit(samples)
-            eval_rows = _predict_rows(model, eval_matches, feature_payloads)
+            model = model_factory().fit(samples)
+            eval_rows = _predict_rows(model, eval_matches, feature_payloads, model_name)
             if not eval_rows:
                 continue
 
@@ -105,9 +120,10 @@ def _training_samples(
 
 
 def _predict_rows(
-    model: LogisticMatchModel,
+    model: SupportsMatchProbabilities,
     matches: Sequence[MatchResult],
     feature_payloads: Mapping[int, FeatureValues],
+    model_name: str,
 ) -> list[PredictionRow]:
     rows: list[PredictionRow] = []
     for match in matches:
@@ -118,7 +134,7 @@ def _predict_rows(
             continue
         rows.append(
             PredictionRow(
-                model=LOGISTIC_MODEL_NAME,
+                model=model_name,
                 match=match,
                 probabilities=model.predict_proba(payload),
             )
