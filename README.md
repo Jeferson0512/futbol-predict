@@ -244,6 +244,41 @@ cd E:\Trabajos\Propios\futbol-predict\frontend
 npm run generate:api-types
 ```
 
+## Fase 5 - Automatizacion
+
+El pipeline semanal orquesta todos los pasos honestos en orden: reconstruye Elo
+y features, re-corre el walk-forward, congela y evalua predicciones, reconstruye
+calibracion, promueve el modelo campeon por RPS y congela las predicciones de la
+proxima jornada. Todo respeta las reglas anti-leakage (`predicted_at < kickoff`,
+registro inmutable).
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+# Ver el plan completo sin escribir nada (rollback al final).
+.\.venv\Scripts\python.exe -m futpredict.cli run-weekly --dry-run
+
+# Ejecutar el pipeline real (commit por paso).
+.\.venv\Scripts\python.exe -m futpredict.cli run-weekly
+
+# Pasos individuales de Fase 5.
+.\.venv\Scripts\python.exe -m futpredict.cli promote-champion --dry-run
+.\.venv\Scripts\python.exe -m futpredict.cli promote-champion
+.\.venv\Scripts\python.exe -m futpredict.cli champion-status
+.\.venv\Scripts\python.exe -m futpredict.cli freeze-future-predictions-db --days 14 --dry-run
+.\.venv\Scripts\python.exe -m futpredict.cli freeze-future-predictions-db --days 14
+```
+
+El campeon se elige por RPS ponderado global y se marca exactamente una
+`model_version` por liga (la de la ventana mas reciente), respetando el indice
+`uq_one_champion_per_league`. Las predicciones futuras solo se congelan para
+fixtures con `kickoff_utc` estrictamente posterior al momento de congelado, y
+nunca sobrescriben una prediccion ya registrada.
+
+Para que `freeze-future-predictions-db` tenga fixtures que congelar, primero hay
+que cargar la jornada proxima con `load-big-five-fixtures-db --season <codigo>`.
+
 ## Reglas del proyecto
 
 - Nunca usar split aleatorio para validar modelos de partidos.
@@ -255,6 +290,9 @@ npm run generate:api-types
 
 ## Siguiente objetivo
 
-El siguiente paso practico es pasar a Fase 5: congelar predicciones futuras
-antes del partido, crear el job semanal y promover el modelo campeon de forma
-automatica. Club Elo y MLflow ya quedaron cerrados como pendientes previos.
+La Fase 5 quedo implementada a nivel de codigo (`run-weekly`, `promote-champion`,
+`freeze-future-predictions-db`). Lo que resta es la **programacion automatica**:
+dejar el job corriendo cada semana. En esta PC la opcion natural es Windows Task
+Scheduler; alternativas son cron en contenedor o GitHub Actions. Ademas conviene
+definir de donde se refrescan los fixtures futuros (por ahora
+`football-data.co.uk`).

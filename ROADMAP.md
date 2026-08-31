@@ -67,10 +67,11 @@
 
 ## Fase 5 - Automatizacion
 
-- [ ] Job semanal.
-- [ ] Reentrenamiento walk-forward.
-- [ ] Promocion de modelo campeon por RPS.
-- [ ] Predicciones congeladas de la siguiente fecha.
+- [x] Job semanal orquestado (`run-weekly`, modulo `jobs/weekly.py`).
+- [x] Reentrenamiento walk-forward dentro del job.
+- [x] Promocion de modelo campeon por RPS (`promote-champion`, un campeon por liga).
+- [x] Predicciones congeladas de la siguiente fecha (`freeze-future-predictions-db`).
+- [ ] Programacion automatica (Windows Task Scheduler / cron / GitHub Actions).
 
 ## Fase 6 - ML tabular
 

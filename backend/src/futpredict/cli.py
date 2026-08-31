@@ -26,6 +26,15 @@ from futpredict.evaluation.db_calibration import (
     calibration_status_rows,
     upsert_calibration_bins,
 )
+from futpredict.evaluation.db_champion import (
+    ChampionPromotionSummary,
+    champion_status_rows,
+    promote_champion_by_rps,
+)
+from futpredict.evaluation.db_future_predictions import (
+    FuturePredictionFreezeSummary,
+    freeze_future_predictions,
+)
 from futpredict.evaluation.db_predictions import (
     PredictionEvaluationSummary,
     PredictionPersistenceSummary,
@@ -80,6 +89,11 @@ from futpredict.ingest.providers.football_data_uk import (
     load_weekly_fixtures,
     parse_matches,
     read_csv_file,
+)
+from futpredict.jobs.weekly import (
+    WeeklyPipelineConfig,
+    WeeklyPipelineError,
+    run_weekly_pipeline,
 )
 from futpredict.models.club_elo import (
     ClubEloPredictionCoverage,
@@ -934,6 +948,158 @@ def elo_ratings_status() -> None:
         )
 
 
+@app.command("promote-champion")
+def promote_champion(
+    min_matches: int = typer.Option(
+        100,
+        min=1,
+        help="Minimo de partidos agregados para considerar un modelo en el ranking.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        help="Calcular el campeon sin escribir is_champion en PostgreSQL.",
+    ),
+) -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            summary = promote_champion_by_rps(
+                session,
+                min_matches=min_matches,
+                commit=not dry_run,
+            )
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+    _echo_champion_promotion_summary(summary)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+
+
+@app.command("champion-status")
+def champion_status() -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            rows = champion_status_rows(session)
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+
+    typer.echo(
+        "model,algorithm,feature_set_version,champion_versions,leagues,last_train_window_end"
+    )
+    for row in rows:
+        typer.echo(
+            f"{row['model']},{row['algorithm']},{row['feature_set_version']},"
+            f"{row['champion_versions']},{row['leagues']},{row['last_train_window_end']}"
+        )
+    if not rows:
+        typer.echo("champion=none")
+
+
+@app.command("freeze-future-predictions-db")
+def freeze_future_predictions_db(
+    days: int = typer.Option(14, min=1, help="Ventana de dias hacia adelante para fixtures."),
+    limit: int = typer.Option(200, min=1, help="Maximo de fixtures a considerar."),
+    divisions: str | None = typer.Option(
+        None,
+        help="Lista de divisiones separadas por coma, por ejemplo E0,SP1.",
+    ),
+    dry_run: bool = typer.Option(False, help="Preparar predicciones sin escribir en PostgreSQL."),
+) -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    division_codes = _division_codes_option(divisions)
+    try:
+        with SessionLocal() as session:
+            summary = freeze_future_predictions(
+                session,
+                days=days,
+                limit=limit,
+                division_codes=division_codes,
+                commit=not dry_run,
+            )
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_future_freeze_summary(summary)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+
+
+@app.command("run-weekly")
+def run_weekly(
+    start_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_START_SEASON,
+        help="Temporada inicial, por ejemplo 1617.",
+    ),
+    end_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_END_SEASON,
+        help="Temporada final, por ejemplo 2526.",
+    ),
+    initial_train_seasons: int = typer.Option(
+        DEFAULT_INITIAL_TRAIN_SEASONS,
+        help="Temporadas iniciales usadas como entrenamiento historico.",
+    ),
+    future_days: int = typer.Option(14, min=1, help="Ventana de dias para predicciones futuras."),
+    future_limit: int = typer.Option(200, min=1, help="Maximo de fixtures futuros a congelar."),
+    champion_min_matches: int = typer.Option(
+        100,
+        min=1,
+        help="Minimo de partidos agregados para promover campeon.",
+    ),
+    include_ingest: bool = typer.Option(
+        True,
+        help="Descargar resultados y fixtures frescos antes de recalcular (best-effort).",
+    ),
+    include_future: bool = typer.Option(
+        True,
+        help="Incluir el paso de congelar predicciones futuras.",
+    ),
+    dry_run: bool = typer.Option(False, help="Ejecutar el pipeline sin escribir en PostgreSQL."),
+) -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    config = WeeklyPipelineConfig(
+        start_season=start_season,
+        end_season=end_season,
+        initial_train_seasons=initial_train_seasons,
+        future_days=future_days,
+        future_limit=future_limit,
+        champion_min_matches=champion_min_matches,
+        include_ingest=include_ingest,
+        include_future=include_future,
+    )
+    try:
+        with SessionLocal() as session:
+            results = run_weekly_pipeline(
+                session,
+                config=config,
+                dry_run=dry_run,
+                logger=typer.echo,
+            )
+    except WeeklyPipelineError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+
+    typer.echo("step,status,detail")
+    for result in results:
+        typer.echo(f"{result.name},{result.status},{result.detail}")
+
+
 def _normalized_football_data_uk_batch(
     season: str,
     division: str,
@@ -1444,6 +1610,38 @@ def _echo_persistence_summary(summary: PersistenceSummary) -> None:
     typer.echo(f"team_aliases={summary.team_aliases}")
     typer.echo(f"matches={summary.matches}")
     typer.echo(f"odds={summary.odds}")
+
+
+def _echo_champion_promotion_summary(summary: ChampionPromotionSummary) -> None:
+    typer.echo("Champion promotion")
+    typer.echo(f"champion_model={summary.champion_model or 'none'}")
+    typer.echo(f"algorithm={summary.algorithm or ''}")
+    typer.echo(f"feature_set_version={summary.feature_set_version or ''}")
+    typer.echo(f"weighted_rps={_optional_metric(summary.weighted_rps)}")
+    typer.echo(f"matches={summary.matches}")
+    typer.echo(f"windows={summary.windows}")
+    typer.echo(f"promoted_versions={summary.promoted_versions}")
+    typer.echo(f"demoted_versions={summary.demoted_versions}")
+    typer.echo(f"champion_versions={summary.champion_versions}")
+
+
+def _echo_future_freeze_summary(summary: FuturePredictionFreezeSummary) -> None:
+    typer.echo("Future prediction freeze")
+    typer.echo(f"frozen_at={summary.frozen_at.isoformat()}")
+    typer.echo(f"fixtures={summary.fixtures}")
+    typer.echo(f"eligible_fixtures={summary.eligible_fixtures}")
+    typer.echo(f"model_versions={summary.model_versions}")
+    typer.echo(f"candidates={summary.candidates}")
+    typer.echo(f"inserted_predictions={summary.inserted_predictions}")
+    typer.echo(f"existing_predictions={summary.existing_predictions}")
+    typer.echo(f"skipped_without_window={summary.skipped_without_window}")
+
+
+def _division_codes_option(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    divisions = [item.strip().upper() for item in value.split(",") if item.strip()]
+    return divisions or None
 
 
 def _echo_database_error(database_url: str, exc: SQLAlchemyError) -> None:
