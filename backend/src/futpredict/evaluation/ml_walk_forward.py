@@ -21,16 +21,16 @@ from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
     WalkForwardMetric,
 )
+from futpredict.models.calibrated import (
+    CALIBRATED_LOGISTIC_MODEL_NAME,
+    build_calibrated_logistic_model,
+)
 from futpredict.models.gradient_boosting import (
     GRADIENT_BOOSTING_MODEL_NAME,
     GradientBoostingMatchModel,
 )
-from futpredict.models.logistic import (
-    LOGISTIC_MODEL_NAME,
-    FeatureValues,
-    LogisticMatchModel,
-    MatchFeatureSample,
-)
+from futpredict.models.logistic import LOGISTIC_MODEL_NAME, LogisticMatchModel
+from futpredict.models.tabular import FeatureValues, MatchFeatureSample
 
 MIN_TRAIN_SAMPLES = 50
 
@@ -47,6 +47,7 @@ ModelFactory = Callable[[], SupportsMatchProbabilities]
 DEFAULT_ML_MODELS: tuple[tuple[ModelFactory, str], ...] = (
     (LogisticMatchModel, LOGISTIC_MODEL_NAME),
     (GradientBoostingMatchModel, GRADIENT_BOOSTING_MODEL_NAME),
+    (build_calibrated_logistic_model, CALIBRATED_LOGISTIC_MODEL_NAME),
 )
 
 

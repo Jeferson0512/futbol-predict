@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 
 from futpredict.domain.matches import MatchResult
 from futpredict.evaluation.ml_walk_forward import run_ml_walk_forward
-from futpredict.models.logistic import FEATURE_KEYS, LOGISTIC_MODEL_NAME
+from futpredict.models.logistic import LOGISTIC_MODEL_NAME
+from futpredict.models.tabular import FEATURE_KEYS
 
 
 def _match(match_id: int, season: str, month: int, home_goals: int, away_goals: int) -> MatchResult:

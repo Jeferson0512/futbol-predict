@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from futpredict.models.logistic import (
-    FEATURE_KEYS,
-    LogisticMatchModel,
-    MatchFeatureSample,
-)
+from futpredict.models.logistic import LogisticMatchModel
+from futpredict.models.tabular import FEATURE_KEYS, MatchFeatureSample
 
 
 def _features(home_points: float, away_points: float) -> dict[str, float | int | None]:
