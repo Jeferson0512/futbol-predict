@@ -44,7 +44,7 @@ historica:
 ## Primer arranque local
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 copy .env.example .env
 docker compose up -d --build postgres api frontend mlflow
 ```
@@ -68,7 +68,7 @@ docker compose logs --tail=80 api frontend
 Comandos utiles usando Docker:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 docker compose run --rm api alembic upgrade head
 docker compose exec api python -m futpredict.cli db-status
 docker compose exec api python -m futpredict.cli team-aliases-status
@@ -85,7 +85,7 @@ docker compose exec api python -m futpredict.cli fixtures-status
 ## Backend sin Docker
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 uv sync --extra dev
 uv run pytest
 uv run uvicorn futpredict.main:app --reload
@@ -96,7 +96,7 @@ accesible desde Windows. Si PostgreSQL viene de Docker Compose, normalmente el
 host local sera `localhost`; dentro de Docker Compose el host sera `postgres`.
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli db-status
 ```
@@ -109,7 +109,7 @@ CSVs gratis con resultados historicos, estadisticas y cuotas.
 Ejemplo:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 uv run futpredict ingest-football-data-uk --season 2526 --division E0
 ```
 
@@ -118,7 +118,7 @@ uv run futpredict ingest-football-data-uk --season 2526 --division E0
 Tambien puedes guardar el CSV en cache y correr el primer backtest local:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 .\.venv\Scripts\python.exe -m futpredict.cli download-football-data-uk --season 2526 --division E0
 .\.venv\Scripts\python.exe -m futpredict.cli backtest-football-data-uk --season 2526 --division E0
 ```
@@ -131,7 +131,7 @@ Pinnacle y Bet365 como fallback. Se reporta RPS, log-loss, Brier y accuracy.
 Para descargar y evaluar Big-5 en diez temporadas:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 .\.venv\Scripts\python.exe -m futpredict.cli download-big-five --start-season 1617 --end-season 2526
 .\.venv\Scripts\python.exe -m futpredict.cli backtest-big-five --start-season 1617 --end-season 2526
 ```
@@ -145,7 +145,7 @@ GET /backtests/football-data-uk/big-five?start_season=1617&end_season=2526
 Para preparar y cargar esos datos a PostgreSQL:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli load-big-five-db --start-season 1617 --end-season 2526 --dry-run
 .\.venv\Scripts\python.exe -m alembic upgrade head
@@ -156,7 +156,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Para evaluar desde PostgreSQL, sin volver a leer los CSV:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli backtest-db-football-data-uk --season 2526 --division E0
 .\.venv\Scripts\python.exe -m futpredict.cli backtest-db-big-five --start-season 1617 --end-season 2526
@@ -165,7 +165,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Para generar features historicos con fecha de corte:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli build-rolling-features-db --start-season 1617 --end-season 2526 --dry-run
 .\.venv\Scripts\python.exe -m futpredict.cli build-rolling-features-db --start-season 1617 --end-season 2526
@@ -175,7 +175,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Para persistir Elo propio por partido:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526 --dry-run
 .\.venv\Scripts\python.exe -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526
@@ -185,7 +185,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Para ejecutar walk-forward formal y guardar metricas por ventana:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli walk-forward-db --start-season 1617 --end-season 2526 --initial-train-seasons 3 --dry-run
 .\.venv\Scripts\python.exe -m futpredict.cli walk-forward-db --start-season 1617 --end-season 2526 --initial-train-seasons 3
@@ -211,7 +211,7 @@ Para congelar predicciones historicas walk-forward, evaluarlas y construir
 calibracion:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-walk-forward-predictions-db --start-season 1617 --end-season 2526 --initial-train-seasons 3
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-walk-forward-predictions-db --start-season 1617 --end-season 2526 --initial-train-seasons 3 --include-club-elo --club-elo-offline
@@ -227,7 +227,7 @@ Para cargar fixtures proximos gratuitos y habilitar la vista de predicciones
 futuras:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli download-football-data-uk-fixtures --force
 .\.venv\Scripts\python.exe -m futpredict.cli load-big-five-fixtures-db --season 2627 --force
@@ -237,10 +237,10 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Para regenerar el contrato API del frontend:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 .\.venv\Scripts\python.exe -m futpredict.cli export-openapi --output ..\frontend\src\api\openapi.json
 
-cd D:\Trabajos\Propios\futbol-predict\frontend
+cd E:\Trabajos\Propios\futbol-predict\frontend
 npm run generate:api-types
 ```
 

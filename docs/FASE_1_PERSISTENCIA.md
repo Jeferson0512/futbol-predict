@@ -36,7 +36,7 @@ bien preparados para cualquier modelo posterior.
 ## Comandos de trabajo
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli inspect-normalized-football-data-uk --season 2526 --division E0
 .\.venv\Scripts\python.exe -m futpredict.cli inspect-normalized-big-five --start-season 1617 --end-season 2526

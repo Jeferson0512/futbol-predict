@@ -6,8 +6,8 @@ otra computadora y que partes ya quedaron listas.
 ## Arranque recomendado
 
 ```powershell
-git clone https://github.com/Jeferson0512/sisgestun-nova.git
-cd sisgestun-nova
+git clone https://github.com/Jeferson0512/futbol-predict.git
+cd futbol-predict
 copy .env.example .env
 docker compose up -d --build postgres api frontend mlflow
 ```

@@ -35,7 +35,7 @@ teams            161
 Desde la raiz del repo:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 docker compose up -d postgres
 docker cp backups\postgres\futbol_predict_2026-08-27.dump futbol_predict_postgres:/tmp/futbol_predict_2026-08-27.dump
 docker compose exec postgres pg_restore -U futbol -d futbol_predict --clean --if-exists --no-owner --no-privileges /tmp/futbol_predict_2026-08-27.dump

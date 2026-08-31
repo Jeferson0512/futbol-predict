@@ -16,7 +16,7 @@ post-partido con metricas probabilisticas reproducibles.
 Desde Windows:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-walk-forward-predictions-db --start-season 1617 --end-season 2526 --initial-train-seasons 3 --dry-run
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-walk-forward-predictions-db --start-season 1617 --end-season 2526 --initial-train-seasons 3
@@ -33,7 +33,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Desde Docker:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 docker compose exec api python -m futpredict.cli freeze-walk-forward-predictions-db --start-season 1617 --end-season 2526 --initial-train-seasons 3
 docker compose exec api python -m futpredict.cli evaluate-predictions-db
 docker compose exec api python -m futpredict.cli predictions-status

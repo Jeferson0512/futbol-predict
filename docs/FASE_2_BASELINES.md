@@ -25,7 +25,7 @@ temporal.
 Desde Windows:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526 --dry-run
 .\.venv\Scripts\python.exe -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526
@@ -41,7 +41,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Desde Docker:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 docker compose exec api python -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526 --dry-run
 docker compose exec api python -m futpredict.cli build-elo-ratings-db --start-season 1617 --end-season 2526
 docker compose exec api python -m futpredict.cli elo-ratings-status

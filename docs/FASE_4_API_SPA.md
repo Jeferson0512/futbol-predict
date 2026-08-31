@@ -69,7 +69,7 @@ La pantalla principal consume datos reales de la API local:
 Desde Windows:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
 .\.venv\Scripts\python.exe -m futpredict.cli download-football-data-uk-fixtures --force
 .\.venv\Scripts\python.exe -m futpredict.cli load-big-five-fixtures-db --season 2627 --force --dry-run
@@ -80,7 +80,7 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 Desde Docker:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict
+cd E:\Trabajos\Propios\futbol-predict
 docker compose exec api python -m futpredict.cli load-big-five-fixtures-db --season 2627 --force
 docker compose exec api python -m futpredict.cli fixtures-status
 ```
@@ -90,20 +90,20 @@ docker compose exec api python -m futpredict.cli fixtures-status
 Para regenerar el contrato API usado por React:
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 .\.venv\Scripts\python.exe -m futpredict.cli export-openapi --output ..\frontend\src\api\openapi.json
 
-cd D:\Trabajos\Propios\futbol-predict\frontend
+cd E:\Trabajos\Propios\futbol-predict\frontend
 npm run generate:api-types
 ```
 
 ```powershell
-cd D:\Trabajos\Propios\futbol-predict\backend
+cd E:\Trabajos\Propios\futbol-predict\backend
 .\.venv\Scripts\ruff.exe check . --no-cache
 .\.venv\Scripts\mypy.exe src --cache-dir C:\Users\Jeferson\AppData\Local\Temp\futpredict-mypy-cache
 .\.venv\Scripts\pytest.exe
 
-cd D:\Trabajos\Propios\futbol-predict\frontend
+cd E:\Trabajos\Propios\futbol-predict\frontend
 npm run build
 ```
 
