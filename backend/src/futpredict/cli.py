@@ -9,7 +9,10 @@ import typer
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from futpredict.data.db_matches import load_match_results_from_db
+from futpredict.data.db_matches import (
+    league_codes_from_divisions,
+    load_match_results_from_db,
+)
 from futpredict.data.football_data_uk_catalog import (
     DEFAULT_BIG_FIVE_END_SEASON,
     DEFAULT_BIG_FIVE_START_SEASON,
@@ -91,6 +94,10 @@ from futpredict.ingest.providers.football_data_uk import (
     load_weekly_fixtures,
     parse_matches,
     read_csv_file,
+)
+from futpredict.ingest.providers.understat import (
+    fetch_understat_xg,
+    understat_xg_coverage,
 )
 from futpredict.jobs.weekly import (
     WeeklyPipelineConfig,
@@ -369,6 +376,57 @@ def walk_forward_db(
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("understat-xg-coverage")
+def understat_xg_coverage_command(
+    division: str = typer.Option(..., help="Codigo de liga, por ejemplo E0."),
+    season: str = typer.Option(..., help="Codigo de temporada, por ejemplo 2324."),
+    cache_dir: Path = typer.Option(
+        Path("data/raw/understat"),
+        help="Carpeta de cache local para soccerdata/Understat.",
+    ),
+) -> None:
+    division_code = division.upper()
+    league_codes = league_codes_from_divisions([division_code])
+    if not league_codes:
+        typer.echo(f"no hay liga para la division {division_code}", err=True)
+        raise typer.Exit(1)
+    league_code = league_codes[0]
+
+    matches = _load_db_match_results(
+        start_season=season,
+        end_season=season,
+        divisions=[division_code],
+    )
+    db_fixtures = [(match.home_team, match.away_team) for match in matches]
+
+    try:
+        understat_matches = fetch_understat_xg(
+            league_code=league_code,
+            season=season,
+            cache_dir=cache_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnostico: red/scraping de Understat
+        typer.echo(f"Understat fetch failed: {exc.__class__.__name__}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    coverage = understat_xg_coverage(
+        db_fixtures,
+        understat_matches,
+        league_code=league_code,
+        season=season,
+    )
+    typer.echo("Understat xG coverage")
+    typer.echo(f"league={coverage.league_code} season={coverage.season}")
+    typer.echo(f"understat_matches={coverage.understat_matches}")
+    typer.echo(f"db_matches={coverage.db_matches}")
+    typer.echo(f"matched={coverage.matched}")
+    typer.echo(f"coverage={coverage.coverage_ratio:.4f}")
+    if coverage.unmatched_understat_teams:
+        typer.echo(
+            "unmatched_understat_teams=" + ", ".join(coverage.unmatched_understat_teams)
+        )
 
 
 @app.command("backtest-ml-walk-forward-db")
