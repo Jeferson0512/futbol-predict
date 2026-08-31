@@ -46,7 +46,7 @@ from futpredict.evaluation.db_walk_forward import (
     WalkForwardPersistenceSummary,
     upsert_walk_forward_metrics,
 )
-from futpredict.evaluation.ml_walk_forward import run_ml_walk_forward
+from futpredict.evaluation.ml_walk_forward import run_configured_ml_walk_forward
 from futpredict.evaluation.mlflow_tracking import (
     DEFAULT_MLFLOW_EXPERIMENT_NAME,
     MlflowSyncSummary,
@@ -399,7 +399,7 @@ def backtest_ml_walk_forward_db(
         divisions=divisions,
     )
     try:
-        ml_metrics = run_ml_walk_forward(
+        ml_metrics = run_configured_ml_walk_forward(
             matches,
             payloads,
             start_season=start_season,
@@ -430,7 +430,7 @@ def backtest_ml_walk_forward_db(
     }
     typer.echo(
         f"Walk-forward ML vs baselines {start_season}-{end_season} - "
-        f"logistic windows={len(ml_windows)}"
+        f"ml windows={len(ml_windows)}"
     )
     _echo_metric_csv(summarize_walk_forward_metrics(combined))
 
@@ -1409,7 +1409,7 @@ def _run_ml_walk_forward_or_exit(
         divisions=big_five_division_codes(),
     )
     try:
-        return run_ml_walk_forward(
+        return run_configured_ml_walk_forward(
             matches,
             payloads,
             start_season=start_season,

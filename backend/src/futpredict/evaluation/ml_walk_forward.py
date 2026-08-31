@@ -21,6 +21,10 @@ from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
     WalkForwardMetric,
 )
+from futpredict.models.gradient_boosting import (
+    GRADIENT_BOOSTING_MODEL_NAME,
+    GradientBoostingMatchModel,
+)
 from futpredict.models.logistic import (
     LOGISTIC_MODEL_NAME,
     FeatureValues,
@@ -38,6 +42,39 @@ class SupportsMatchProbabilities(Protocol):
 
 
 ModelFactory = Callable[[], SupportsMatchProbabilities]
+
+# Modelos ML entrenados que se evaluan/persisten junto a los baselines.
+DEFAULT_ML_MODELS: tuple[tuple[ModelFactory, str], ...] = (
+    (LogisticMatchModel, LOGISTIC_MODEL_NAME),
+    (GradientBoostingMatchModel, GRADIENT_BOOSTING_MODEL_NAME),
+)
+
+
+def run_configured_ml_walk_forward(
+    matches: Sequence[MatchResult],
+    feature_payloads: Mapping[int, FeatureValues],
+    *,
+    start_season: str,
+    end_season: str,
+    initial_train_seasons: int = DEFAULT_INITIAL_TRAIN_SEASONS,
+    min_train_samples: int = MIN_TRAIN_SAMPLES,
+    models: Sequence[tuple[ModelFactory, str]] = DEFAULT_ML_MODELS,
+) -> list[WalkForwardMetric]:
+    metrics: list[WalkForwardMetric] = []
+    for model_factory, model_name in models:
+        metrics.extend(
+            run_ml_walk_forward(
+                matches,
+                feature_payloads,
+                start_season=start_season,
+                end_season=end_season,
+                initial_train_seasons=initial_train_seasons,
+                min_train_samples=min_train_samples,
+                model_factory=model_factory,
+                model_name=model_name,
+            )
+        )
+    return metrics
 
 
 def run_ml_walk_forward(

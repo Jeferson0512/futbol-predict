@@ -26,7 +26,7 @@ from futpredict.evaluation.db_predictions import (
     freeze_walk_forward_predictions,
 )
 from futpredict.evaluation.db_walk_forward import upsert_walk_forward_metrics
-from futpredict.evaluation.ml_walk_forward import run_ml_walk_forward
+from futpredict.evaluation.ml_walk_forward import run_configured_ml_walk_forward
 from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
     run_expanding_walk_forward,
@@ -302,7 +302,7 @@ def _walk_forward_metrics(
         end_season=cfg.end_season,
         division_codes=divisions,
     )
-    ml_metrics = run_ml_walk_forward(
+    ml_metrics = run_configured_ml_walk_forward(
         matches,
         payloads,
         start_season=cfg.start_season,
