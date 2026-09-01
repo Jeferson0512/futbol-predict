@@ -23,6 +23,7 @@ import {
   YAxis,
 } from "recharts";
 import type { components } from "./api/generated";
+import { PronosticosApp } from "./pronosticos";
 import "./styles.css";
 
 type Schemas = components["schemas"];
@@ -637,8 +638,25 @@ function App() {
   );
 }
 
+function Root() {
+  const [view, setView] = useState<"pronosticos" | "analitico">("pronosticos");
+  return (
+    <>
+      <div className="app-switch">
+        <button type="button" aria-selected={view === "pronosticos"} onClick={() => setView("pronosticos")}>
+          Pronósticos
+        </button>
+        <button type="button" aria-selected={view === "analitico"} onClick={() => setView("analitico")}>
+          Panel analítico
+        </button>
+      </div>
+      {view === "pronosticos" ? <PronosticosApp /> : <App />}
+    </>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>,
 );
