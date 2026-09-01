@@ -77,9 +77,9 @@
 
 - [x] Primer set de features temporales anti-leakage.
 - [x] Regresion logistica multinomial (`backtest-ml-walk-forward-db`).
-- [ ] xG desde Understat via soccerdata.
-- [ ] XGBoost o LightGBM.
-- [ ] Calibracion Platt/isotonica.
+- [x] xG desde Understat via soccerdata (feature set `rolling_v2`, cobertura 100%).
+- [x] Gradient boosting (HistGradientBoosting; XGBoost/LightGBM opcional a futuro).
+- [x] Calibracion Platt/isotonica.
 
 ## Fase 7 - Vista amigable de predicciones
 

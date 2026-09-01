@@ -295,10 +295,33 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 .\.venv\Scripts\python.exe -m futpredict.cli backtest-ml-walk-forward-db --start-season 1617 --end-season 2526
 ```
 
-La salida ordena por RPS ponderado la logistica junto a los baselines. Hoy la
-logistica supera a `historical_frequency` pero todavia no vence a `elo_simple`
-ni a `market_avg_odds`; los siguientes pasos (xG, boosting, calibracion) buscan
-cerrar esa brecha.
+La salida ordena por RPS ponderado los modelos ML junto a los baselines. Ademas
+de la logistica hay gradient boosting (`HistGradientBoosting`) y calibracion
+isotonica, y un feature set con xG (`rolling_v2`).
+
+### xG desde Understat
+
+Se descarga xG por partido desde Understat (via `soccerdata`), se guarda en
+`matches` y se construye el feature set `rolling_v2` (rolling_v1 + xG rodante):
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+# Validar el mapeo de equipos (Understat -> football-data) por cobertura.
+.\.venv\Scripts\python.exe -m futpredict.cli understat-xg-coverage --division E0 --season 2324
+.\.venv\Scripts\python.exe -m futpredict.cli load-understat-xg-big-five --start-season 1617 --end-season 2526 --dry-run
+
+# Guardar xG, construir rolling_v2 y medir el impacto.
+.\.venv\Scripts\python.exe -m futpredict.cli load-understat-xg-big-five --start-season 1617 --end-season 2526
+.\.venv\Scripts\python.exe -m futpredict.cli build-rolling-features-db --start-season 1617 --end-season 2526 --with-xg
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-ml-walk-forward-db --start-season 1617 --end-season 2526 --feature-set rolling_v2
+```
+
+Medicion honesta: el xG mejora los tres modelos ML (logistica 0.216 -> 0.213,
+boosting 0.222 -> 0.217), acercandolos a `elo_simple` (0.203) aunque todavia sin
+superar a Elo ni al mercado. Ningun modelo ML es campeon aun; el mercado sigue
+liderando por RPS.
 
 ## Reglas del proyecto
 
@@ -311,9 +334,8 @@ cerrar esa brecha.
 
 ## Siguiente objetivo
 
-Fase 5 (automatizacion) esta cerrada y programada con Windows Task Scheduler.
-La Fase 6 arranco con la regresion logistica multinomial ya medida; los proximos
-pasos son xG desde Understat, un modelo de boosting (XGBoost/LightGBM) y
-calibracion Platt/isotonica para intentar superar a Elo y al mercado. En
-paralelo queda la Fase 7 (vista amigable de predicciones, prototipo aprobado) y
-la Fase 8 (expansion a Brasil, Argentina y Liga 1 Peru).
+Fases 5 (automatizacion) y 6 (ML tabular con xG) estan cerradas. Ningun modelo
+ML supera aun a Elo ni al mercado; mejorarlos (mas features de xG, ajuste por
+rival) es trabajo abierto. Siguen la Fase 7 (vista amigable de predicciones,
+prototipo aprobado, pendiente de implementar en el frontend) y la Fase 8
+(expansion a Brasil, Argentina y Liga 1 Peru).
