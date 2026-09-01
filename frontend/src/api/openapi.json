@@ -252,6 +252,88 @@
         }
       }
     },
+    "/predictions/history": {
+      "get": {
+        "summary": "Prediction History",
+        "operationId": "prediction_history_predictions_history_get",
+        "parameters": [
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "default": "market_avg_odds",
+              "title": "Model"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(all|evaluated|pending)$",
+              "default": "all",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Divisions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/calibration/status": {
       "get": {
         "summary": "Calibration Status",
@@ -573,6 +655,45 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FixturePredictionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/matches/{match_id}": {
+      "get": {
+        "summary": "Match Detail",
+        "operationId": "match_detail_matches__match_id__get",
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchDetailResponse"
                 }
               }
             }
@@ -1166,6 +1287,227 @@
         ],
         "title": "HealthResponse"
       },
+      "MatchDetailHeadToHeadResponse": {
+        "properties": {
+          "kickoff_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Kickoff Utc"
+          },
+          "home_team": {
+            "type": "string",
+            "title": "Home Team"
+          },
+          "away_team": {
+            "type": "string",
+            "title": "Away Team"
+          },
+          "home_goals": {
+            "type": "integer",
+            "title": "Home Goals"
+          },
+          "away_goals": {
+            "type": "integer",
+            "title": "Away Goals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kickoff_utc",
+          "home_team",
+          "away_team",
+          "home_goals",
+          "away_goals"
+        ],
+        "title": "MatchDetailHeadToHeadResponse"
+      },
+      "MatchDetailResponse": {
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "kickoff_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Kickoff Utc"
+          },
+          "league": {
+            "type": "string",
+            "title": "League"
+          },
+          "division": {
+            "type": "string",
+            "title": "Division"
+          },
+          "season": {
+            "type": "string",
+            "title": "Season"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "home_team": {
+            "type": "string",
+            "title": "Home Team"
+          },
+          "away_team": {
+            "type": "string",
+            "title": "Away Team"
+          },
+          "home_goals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Goals"
+          },
+          "away_goals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Goals"
+          },
+          "odds_home": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odds Home"
+          },
+          "odds_draw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odds Draw"
+          },
+          "odds_away": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Odds Away"
+          },
+          "implied": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implied"
+          },
+          "home_elo_before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Elo Before"
+          },
+          "away_elo_before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Elo Before"
+          },
+          "xg": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Xg"
+          },
+          "home_form": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Home Form"
+          },
+          "away_form": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Away Form"
+          },
+          "head_to_head": {
+            "items": {
+              "$ref": "#/components/schemas/MatchDetailHeadToHeadResponse"
+            },
+            "type": "array",
+            "title": "Head To Head"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "kickoff_utc",
+          "league",
+          "division",
+          "season",
+          "status",
+          "home_team",
+          "away_team",
+          "home_goals",
+          "away_goals",
+          "odds_home",
+          "odds_draw",
+          "odds_away",
+          "implied",
+          "home_elo_before",
+          "away_elo_before",
+          "xg",
+          "home_form",
+          "away_form",
+          "head_to_head"
+        ],
+        "title": "MatchDetailResponse"
+      },
       "ModelRankingResponse": {
         "properties": {
           "rows": {
@@ -1267,6 +1609,217 @@
           "weighted_calibration_error"
         ],
         "title": "ModelRankingRowResponse"
+      },
+      "PredictionHistoryResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PredictionHistorySummaryResponse"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionHistoryRowResponse"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "summary",
+          "rows"
+        ],
+        "title": "PredictionHistoryResponse"
+      },
+      "PredictionHistoryRowResponse": {
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "title": "Match Id"
+          },
+          "kickoff_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Kickoff Utc"
+          },
+          "league": {
+            "type": "string",
+            "title": "League"
+          },
+          "home_team": {
+            "type": "string",
+            "title": "Home Team"
+          },
+          "away_team": {
+            "type": "string",
+            "title": "Away Team"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "home_goals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Goals"
+          },
+          "away_goals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Away Goals"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "prob_home": {
+            "type": "number",
+            "title": "Prob Home"
+          },
+          "prob_draw": {
+            "type": "number",
+            "title": "Prob Draw"
+          },
+          "prob_away": {
+            "type": "number",
+            "title": "Prob Away"
+          },
+          "predicted_outcome": {
+            "type": "string",
+            "title": "Predicted Outcome"
+          },
+          "predicted_pick": {
+            "type": "string",
+            "title": "Predicted Pick"
+          },
+          "actual_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Outcome"
+          },
+          "hit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit"
+          },
+          "rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "kickoff_utc",
+          "league",
+          "home_team",
+          "away_team",
+          "status",
+          "home_goals",
+          "away_goals",
+          "model",
+          "prob_home",
+          "prob_draw",
+          "prob_away",
+          "predicted_outcome",
+          "predicted_pick",
+          "actual_outcome",
+          "hit",
+          "rps"
+        ],
+        "title": "PredictionHistoryRowResponse"
+      },
+      "PredictionHistorySummaryResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "evaluated": {
+            "type": "integer",
+            "title": "Evaluated"
+          },
+          "pending": {
+            "type": "integer",
+            "title": "Pending"
+          },
+          "hits": {
+            "type": "integer",
+            "title": "Hits"
+          },
+          "accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy"
+          },
+          "avg_rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Rps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "total",
+          "evaluated",
+          "pending",
+          "hits",
+          "accuracy",
+          "avg_rps"
+        ],
+        "title": "PredictionHistorySummaryResponse"
       },
       "PredictionStatusResponse": {
         "properties": {

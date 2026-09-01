@@ -103,6 +103,37 @@ export type components = {
       status: string;
       app_env: string;
     };
+    MatchDetailHeadToHeadResponse: {
+      kickoff_utc: string;
+      home_team: string;
+      away_team: string;
+      home_goals: number;
+      away_goals: number;
+    };
+    MatchDetailResponse: {
+      match_id: number;
+      kickoff_utc: string;
+      league: string;
+      division: string;
+      season: string;
+      status: string;
+      home_team: string;
+      away_team: string;
+      home_goals: number | null;
+      away_goals: number | null;
+      odds_home: number | null;
+      odds_draw: number | null;
+      odds_away: number | null;
+      implied: number[] | null;
+      home_elo_before: number | null;
+      away_elo_before: number | null;
+      xg: {
+      [key: string]: number | null;
+    };
+      home_form: string[];
+      away_form: string[];
+      head_to_head: components["schemas"]["MatchDetailHeadToHeadResponse"][];
+    };
     ModelRankingResponse: {
       rows: components["schemas"]["ModelRankingRowResponse"][];
     };
@@ -117,6 +148,39 @@ export type components = {
       weighted_brier: number | null;
       weighted_accuracy: number | null;
       weighted_calibration_error: number | null;
+    };
+    PredictionHistoryResponse: {
+      model: string;
+      summary: components["schemas"]["PredictionHistorySummaryResponse"];
+      rows: components["schemas"]["PredictionHistoryRowResponse"][];
+    };
+    PredictionHistoryRowResponse: {
+      match_id: number;
+      kickoff_utc: string;
+      league: string;
+      home_team: string;
+      away_team: string;
+      status: string;
+      home_goals: number | null;
+      away_goals: number | null;
+      model: string;
+      prob_home: number;
+      prob_draw: number;
+      prob_away: number;
+      predicted_outcome: string;
+      predicted_pick: string;
+      actual_outcome: string | null;
+      hit: boolean | null;
+      rps: number | null;
+    };
+    PredictionHistorySummaryResponse: {
+      model: string;
+      total: number;
+      evaluated: number;
+      pending: number;
+      hits: number;
+      accuracy: number | null;
+      avg_rps: number | null;
     };
     PredictionStatusResponse: {
       rows: components["schemas"]["PredictionStatusRowResponse"][];
@@ -159,8 +223,13 @@ export type FixturePredictionsResponse = components["schemas"]["FixturePredictio
 export type FixtureResponse = components["schemas"]["FixtureResponse"];
 export type HTTPValidationError = components["schemas"]["HTTPValidationError"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
+export type MatchDetailHeadToHeadResponse = components["schemas"]["MatchDetailHeadToHeadResponse"];
+export type MatchDetailResponse = components["schemas"]["MatchDetailResponse"];
 export type ModelRankingResponse = components["schemas"]["ModelRankingResponse"];
 export type ModelRankingRowResponse = components["schemas"]["ModelRankingRowResponse"];
+export type PredictionHistoryResponse = components["schemas"]["PredictionHistoryResponse"];
+export type PredictionHistoryRowResponse = components["schemas"]["PredictionHistoryRowResponse"];
+export type PredictionHistorySummaryResponse = components["schemas"]["PredictionHistorySummaryResponse"];
 export type PredictionStatusResponse = components["schemas"]["PredictionStatusResponse"];
 export type PredictionStatusRowResponse = components["schemas"]["PredictionStatusRowResponse"];
 export type UpcomingFixturesResponse = components["schemas"]["UpcomingFixturesResponse"];
