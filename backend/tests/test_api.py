@@ -88,6 +88,65 @@ def test_prediction_history_endpoint(monkeypatch: Any) -> None:
     assert payload["rows"][1]["hit"] is None
 
 
+def test_match_detail_endpoint(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "futpredict.api.routes.load_match_detail",
+        lambda session, match_id: {
+            "match_id": match_id,
+            "kickoff_utc": datetime(2026, 5, 24, 15, 0, tzinfo=UTC),
+            "league": "Premier League",
+            "division": "E0",
+            "season": "2526",
+            "status": "finished",
+            "home_team": "Aston Villa",
+            "away_team": "Arsenal",
+            "home_goals": 1,
+            "away_goals": 2,
+            "odds_home": 5.2,
+            "odds_draw": 4.3,
+            "odds_away": 1.62,
+            "implied": [0.16, 0.23, 0.61],
+            "home_elo_before": 1712.0,
+            "away_elo_before": 1885.0,
+            "xg": {
+                "home_xg_for_per_match_last_5": 1.3,
+                "home_xg_against_per_match_last_5": 1.1,
+                "away_xg_for_per_match_last_5": 2.0,
+                "away_xg_against_per_match_last_5": 0.8,
+            },
+            "home_form": ["W", "L", "D", "W", "L"],
+            "away_form": ["W", "W", "D", "W", "W"],
+            "head_to_head": [
+                {
+                    "kickoff_utc": datetime(2025, 12, 1, 15, 0, tzinfo=UTC),
+                    "home_team": "Arsenal",
+                    "away_team": "Aston Villa",
+                    "home_goals": 2,
+                    "away_goals": 0,
+                }
+            ],
+        },
+    )
+    client = TestClient(create_app())
+    response = client.get("/matches/42")
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["match_id"] == 42
+    assert payload["home_team"] == "Aston Villa"
+    assert payload["implied"] == [0.16, 0.23, 0.61]
+    assert payload["home_form"] == ["W", "L", "D", "W", "L"]
+    assert len(payload["head_to_head"]) == 1
+
+
+def test_match_detail_not_found(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "futpredict.api.routes.load_match_detail",
+        lambda session, match_id: None,
+    )
+    client = TestClient(create_app())
+    assert client.get("/matches/999").status_code == 404
+
+
 def test_backtest_endpoint(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         "futpredict.api.routes.load_matches",

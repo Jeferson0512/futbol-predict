@@ -23,6 +23,8 @@ from futpredict.api.schemas import (
     FixturePredictionsResponse,
     FixtureResponse,
     HealthResponse,
+    MatchDetailHeadToHeadResponse,
+    MatchDetailResponse,
     ModelRankingResponse,
     ModelRankingRowResponse,
     PredictionHistoryResponse,
@@ -34,6 +36,7 @@ from futpredict.api.schemas import (
 )
 from futpredict.core.config import settings
 from futpredict.data.db_fixtures import load_upcoming_fixtures_from_db
+from futpredict.data.db_match_detail import load_match_detail
 from futpredict.data.db_matches import (
     load_finished_match_results_before_from_db,
     load_match_results_from_db,
@@ -454,6 +457,54 @@ def fixture_predictions(
         days=days,
         model_mode=model,
         rows=rows,
+    )
+
+
+@router.get("/matches/{match_id}", response_model=MatchDetailResponse)
+def match_detail(match_id: int) -> MatchDetailResponse:
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            detail = load_match_detail(session, match_id)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"database unavailable: {exc.__class__.__name__}",
+        ) from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail="match not found")
+
+    return MatchDetailResponse(
+        match_id=_required_int(detail["match_id"]),
+        kickoff_utc=cast(datetime, detail["kickoff_utc"]),
+        league=str(detail["league"]),
+        division=str(detail["division"]),
+        season=str(detail["season"]),
+        status=str(detail["status"]),
+        home_team=str(detail["home_team"]),
+        away_team=str(detail["away_team"]),
+        home_goals=_optional_int(detail["home_goals"]),
+        away_goals=_optional_int(detail["away_goals"]),
+        odds_home=_optional_float(detail["odds_home"]),
+        odds_draw=_optional_float(detail["odds_draw"]),
+        odds_away=_optional_float(detail["odds_away"]),
+        implied=cast("list[float] | None", detail["implied"]),
+        home_elo_before=_optional_float(detail["home_elo_before"]),
+        away_elo_before=_optional_float(detail["away_elo_before"]),
+        xg=cast("dict[str, float | None]", detail["xg"]),
+        home_form=cast("list[str]", detail["home_form"]),
+        away_form=cast("list[str]", detail["away_form"]),
+        head_to_head=[
+            MatchDetailHeadToHeadResponse(
+                kickoff_utc=cast(datetime, item["kickoff_utc"]),
+                home_team=str(item["home_team"]),
+                away_team=str(item["away_team"]),
+                home_goals=_required_int(item["home_goals"]),
+                away_goals=_required_int(item["away_goals"]),
+            )
+            for item in cast("list[dict[str, object]]", detail["head_to_head"])
+        ],
     )
 
 

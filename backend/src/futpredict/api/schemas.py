@@ -185,3 +185,34 @@ class PredictionHistoryResponse(BaseModel):
     model: str
     summary: PredictionHistorySummaryResponse
     rows: list[PredictionHistoryRowResponse]
+
+
+class MatchDetailHeadToHeadResponse(BaseModel):
+    kickoff_utc: datetime
+    home_team: str
+    away_team: str
+    home_goals: int
+    away_goals: int
+
+
+class MatchDetailResponse(BaseModel):
+    match_id: int
+    kickoff_utc: datetime
+    league: str
+    division: str
+    season: str
+    status: str
+    home_team: str
+    away_team: str
+    home_goals: int | None
+    away_goals: int | None
+    odds_home: float | None
+    odds_draw: float | None
+    odds_away: float | None
+    implied: list[float] | None
+    home_elo_before: float | None
+    away_elo_before: float | None
+    xg: dict[str, float | None]
+    home_form: list[str]
+    away_form: list[str]
+    head_to_head: list[MatchDetailHeadToHeadResponse]
