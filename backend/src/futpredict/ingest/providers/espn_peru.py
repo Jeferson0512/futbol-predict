@@ -20,6 +20,18 @@ PERU_LEAGUE_CODE = "liga1-peru"
 PERU_LEAGUE_NAME = "Liga 1 Peru"
 PERU_DIVISION = "PER1"
 ESPN_PERU_SLUG = "per.1"
+
+# Slug de ESPN por division propia (para cargar la temporada en curso que
+# football-data.co.uk aun no publica).
+ESPN_DIVISION_SLUGS: dict[str, str] = {
+    "E0": "eng.1",
+    "SP1": "esp.1",
+    "I1": "ita.1",
+    "D1": "ger.1",
+    "F1": "fra.1",
+    "PER1": "per.1",
+}
+
 _ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
 # ESPN responde 403 a User-Agents desconocidos; usar uno de navegador.
 _ESPN_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -47,9 +59,11 @@ class EspnPeruMatch:
         return "A"
 
 
-def fetch_espn_peru_season(
+def fetch_espn_season(
+    slug: str,
     year: int,
     *,
+    season: str | None = None,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
 ) -> list[EspnPeruMatch]:
@@ -61,7 +75,7 @@ def fetch_espn_peru_season(
             last_day = calendar.monthrange(year, month)[1]
             start = f"{year}{month:02d}01"
             end = f"{year}{month:02d}{last_day:02d}"
-            url = _ESPN_SCOREBOARD.format(slug=ESPN_PERU_SLUG)
+            url = _ESPN_SCOREBOARD.format(slug=slug)
             response = http.get(url, params={"dates": f"{start}-{end}"})
             response.raise_for_status()
             events.extend(response.json().get("events", []))
@@ -69,7 +83,16 @@ def fetch_espn_peru_season(
         if owned:
             http.close()
 
-    return parse_espn_events(events, season=str(year))
+    return parse_espn_events(events, season=season if season is not None else str(year))
+
+
+def fetch_espn_peru_season(
+    year: int,
+    *,
+    timeout: float = 30.0,
+    client: httpx.Client | None = None,
+) -> list[EspnPeruMatch]:
+    return fetch_espn_season(ESPN_PERU_SLUG, year, timeout=timeout, client=client)
 
 
 def parse_espn_events(
