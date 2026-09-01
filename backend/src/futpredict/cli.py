@@ -90,6 +90,10 @@ from futpredict.ingest.normalized import (
     validate_normalized_batch,
 )
 from futpredict.ingest.persistence import PersistenceSummary, load_normalized_batch
+from futpredict.ingest.providers.espn_peru import (
+    EspnPeruMatch,
+    fetch_espn_peru_season,
+)
 from futpredict.ingest.providers.football_data_uk import (
     download_csv,
     download_fixtures_csv,
@@ -383,6 +387,35 @@ def walk_forward_db(
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("espn-peru-preview")
+def espn_peru_preview(
+    start_year: int = typer.Option(2022, help="Ano inicial (temporada por ano calendario)."),
+    end_year: int = typer.Option(2026, help="Ano final."),
+) -> None:
+    all_matches: list[EspnPeruMatch] = []
+    teams: set[str] = set()
+    typer.echo("season,matches,finished,scheduled,teams")
+    for year in range(start_year, end_year + 1):
+        try:
+            matches = fetch_espn_peru_season(year)
+        except httpx.HTTPError as exc:
+            typer.echo(f"{year},ERROR,{exc.__class__.__name__}", err=True)
+            continue
+        finished = sum(1 for match in matches if match.completed)
+        season_teams = {match.home_team for match in matches} | {
+            match.away_team for match in matches
+        }
+        teams.update(season_teams)
+        typer.echo(
+            f"{year},{len(matches)},{finished},{len(matches) - finished},{len(season_teams)}"
+        )
+        all_matches.extend(matches)
+
+    typer.echo(f"total_matches={len(all_matches)} total_teams={len(teams)}")
+    if teams:
+        typer.echo("teams=" + ", ".join(sorted(teams)))
 
 
 @app.command("understat-xg-coverage")
