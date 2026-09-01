@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from futpredict.db.models import ModelMetric, ModelVersion
+from futpredict.data.db_matches import league_codes_from_divisions
+from futpredict.db.models import League, ModelMetric, ModelVersion
 
 
-def model_ranking_rows(session: Session, *, min_matches: int = 1) -> list[dict[str, object]]:
+def model_ranking_rows(
+    session: Session,
+    *,
+    min_matches: int = 1,
+    division_codes: Sequence[str] | None = None,
+) -> list[dict[str, object]]:
     match_weight = func.sum(ModelMetric.n_matches)
     calibration_weight = func.sum(
         case((ModelMetric.calibration_error.is_not(None), ModelMetric.n_matches), else_=0)
@@ -19,7 +27,7 @@ def model_ranking_rows(session: Session, *, min_matches: int = 1) -> list[dict[s
         func.sum(ModelMetric.calibration_error * ModelMetric.n_matches)
         / func.nullif(calibration_weight, 0)
     )
-    rows = session.execute(
+    statement = (
         select(
             ModelVersion.name.label("model"),
             ModelVersion.algorithm,
@@ -40,10 +48,21 @@ def model_ranking_rows(session: Session, *, min_matches: int = 1) -> list[dict[s
         )
         .having(match_weight >= min_matches)
         .order_by(weighted_rps)
-    ).mappings()
+    )
+    league_codes = league_codes_from_divisions(division_codes)
+    if league_codes:
+        statement = statement.join(League, League.id == ModelVersion.league_id).where(
+            League.code.in_(league_codes)
+        )
+    rows = session.execute(statement).mappings()
     return [dict(row) for row in rows]
 
 
-def champion_model_row(session: Session, *, min_matches: int = 1) -> dict[str, object] | None:
-    rows = model_ranking_rows(session, min_matches=min_matches)
+def champion_model_row(
+    session: Session,
+    *,
+    min_matches: int = 1,
+    division_codes: Sequence[str] | None = None,
+) -> dict[str, object] | None:
+    rows = model_ranking_rows(session, min_matches=min_matches, division_codes=division_codes)
     return rows[0] if rows else None

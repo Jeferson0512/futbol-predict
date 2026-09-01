@@ -41,8 +41,9 @@ def run_expanding_walk_forward_predictions(
     end_season: str,
     initial_train_seasons: int = DEFAULT_INITIAL_TRAIN_SEASONS,
     extra_prediction_providers: Sequence[PredictionProvider] | None = None,
+    seasons: Sequence[str] | None = None,
 ) -> list[WalkForwardPrediction]:
-    seasons = season_range(start_season, end_season)
+    seasons = list(seasons) if seasons is not None else season_range(start_season, end_season)
     if initial_train_seasons < 1:
         msg = "initial_train_seasons must be positive"
         raise ValueError(msg)

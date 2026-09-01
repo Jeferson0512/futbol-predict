@@ -13,6 +13,7 @@ from futpredict.data.db_matches import (
     league_codes_from_divisions,
     load_match_results_from_db,
 )
+from futpredict.data.db_peru import PeruLoadSummary, load_peru_matches
 from futpredict.data.db_understat import UnderstatStoreSummary, store_understat_xg
 from futpredict.data.football_data_uk_catalog import (
     DEFAULT_BIG_FIVE_END_SEASON,
@@ -90,6 +91,11 @@ from futpredict.ingest.normalized import (
     validate_normalized_batch,
 )
 from futpredict.ingest.persistence import PersistenceSummary, load_normalized_batch
+from futpredict.ingest.providers.espn_peru import (
+    PERU_DIVISION,
+    EspnPeruMatch,
+    fetch_espn_peru_season,
+)
 from futpredict.ingest.providers.football_data_uk import (
     download_csv,
     download_fixtures_csv,
@@ -383,6 +389,113 @@ def walk_forward_db(
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("peru-walk-forward-db")
+def peru_walk_forward_db(
+    initial_train_seasons: int = typer.Option(
+        2,
+        min=1,
+        help="Temporadas iniciales de entrenamiento (Peru tiene 6: 2021-2026).",
+    ),
+    dry_run: bool = typer.Option(False, help="Calcular sin escribir en PostgreSQL."),
+) -> None:
+    matches = _load_db_match_results(
+        start_season="2021",
+        end_season="2627",
+        divisions=[PERU_DIVISION],
+    )
+    if not matches:
+        typer.echo("No hay partidos de Peru cargados. Corre load-peru-db.", err=True)
+        raise typer.Exit(1)
+    seasons = sorted({match.season for match in matches})
+    typer.echo(f"peru_seasons={','.join(seasons)} matches={len(matches)}")
+
+    try:
+        metrics = run_expanding_walk_forward(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+        predictions = run_expanding_walk_forward_predictions(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    _echo_walk_forward_summary(metrics)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+        return
+
+    _persist_walk_forward_metrics(metrics)
+    _persist_walk_forward_predictions(predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
+@app.command("load-peru-db")
+def load_peru_db(
+    start_year: int = typer.Option(2021, help="Ano inicial (temporada por ano calendario)."),
+    end_year: int = typer.Option(2026, help="Ano final."),
+    dry_run: bool = typer.Option(False, help="Descargar sin escribir en PostgreSQL."),
+) -> None:
+    all_matches: list[EspnPeruMatch] = []
+    for year in range(start_year, end_year + 1):
+        try:
+            all_matches.extend(fetch_espn_peru_season(year))
+        except httpx.HTTPError as exc:
+            typer.echo(f"Peru {year} fetch failed: {exc.__class__.__name__}", err=True)
+    typer.echo(f"fetched_matches={len(all_matches)}")
+    if not all_matches:
+        typer.echo("No se descargaron partidos de Peru.", err=True)
+        raise typer.Exit(1)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+        return
+
+    summary = _load_peru_or_exit(all_matches)
+    typer.echo("Loaded Peru matches")
+    typer.echo(f"seasons={summary.seasons}")
+    typer.echo(f"teams={summary.teams}")
+    typer.echo(f"matches={summary.matches}")
+    typer.echo(f"finished={summary.finished}")
+    typer.echo(f"scheduled={summary.scheduled}")
+
+
+@app.command("espn-peru-preview")
+def espn_peru_preview(
+    start_year: int = typer.Option(2022, help="Ano inicial (temporada por ano calendario)."),
+    end_year: int = typer.Option(2026, help="Ano final."),
+) -> None:
+    all_matches: list[EspnPeruMatch] = []
+    teams: set[str] = set()
+    typer.echo("season,matches,finished,scheduled,teams")
+    for year in range(start_year, end_year + 1):
+        try:
+            matches = fetch_espn_peru_season(year)
+        except httpx.HTTPError as exc:
+            typer.echo(f"{year},ERROR,{exc.__class__.__name__}", err=True)
+            continue
+        finished = sum(1 for match in matches if match.completed)
+        season_teams = {match.home_team for match in matches} | {
+            match.away_team for match in matches
+        }
+        teams.update(season_teams)
+        typer.echo(
+            f"{year},{len(matches)},{finished},{len(matches) - finished},{len(season_teams)}"
+        )
+        all_matches.extend(matches)
+
+    typer.echo(f"total_matches={len(all_matches)} total_teams={len(teams)}")
+    if teams:
+        typer.echo("teams=" + ", ".join(sorted(teams)))
 
 
 @app.command("understat-xg-coverage")
@@ -1420,6 +1533,18 @@ def _load_db_match_results(
         raise typer.Exit(1) from exc
     except ValueError as exc:
         typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _load_peru_or_exit(matches: list[EspnPeruMatch]) -> PeruLoadSummary:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            return load_peru_matches(session, matches)
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
         raise typer.Exit(1) from exc
 
 

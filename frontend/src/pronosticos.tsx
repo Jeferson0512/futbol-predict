@@ -15,6 +15,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const HISTORY_MODEL = "market_avg_odds";
 
 const LEAGUES: ReadonlyArray<readonly [string, string]> = [
+  ["PER1", "Liga 1 Perú"],
   ["E0", "Premier League"], ["SP1", "LaLiga"], ["I1", "Serie A"],
   ["D1", "Bundesliga"], ["F1", "Ligue 1"],
 ];
@@ -23,6 +24,24 @@ const SECTIONS: ReadonlyArray<readonly [string, string]> = [
   ["calibracion", "Calibración"], ["modelos", "Modelos"],
 ];
 const OUT = ["h", "d", "aw"] as const;
+
+// Modelo por liga: los Big-5 tienen mercado; Peru no (usa Elo).
+const LEAGUE_MODEL: Record<string, string> = { PER1: "elo_simple" };
+const modelForLeague = (division: string): string => LEAGUE_MODEL[division] ?? "market_avg_odds";
+const leagueName = (division: string): string =>
+  LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
+
+function LeagueTabs({ value, onChange }: { value: string; onChange: (division: string) => void }) {
+  return (
+    <div className="pro-tabs" role="tablist" aria-label="Ligas">
+      {LEAGUES.map(([code, name]) => (
+        <button key={code} type="button" className="pro-tab" aria-selected={value === code} onClick={() => onChange(code)}>
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function useJson<T>(url: string | null): { data: T | null; loading: boolean; error: string | null } {
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({
@@ -88,7 +107,8 @@ function fmtKickoff(iso: string): string {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const s = new Date(iso).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
@@ -103,30 +123,37 @@ function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
 }
 
 function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
-  const [division, setDivision] = useState("E0");
+  const [division, setDivision] = useState("PER1");
   const { data, loading, error } = useJson<FixturePredictions>(
-    `${apiBaseUrl}/fixtures/predictions?days=21&since_days=10&limit=120&model=best_available`,
+    `${apiBaseUrl}/fixtures/predictions?days=60&limit=200&model=best_available`,
   );
   const byLeague = useMemo(() => (data?.rows ?? []).filter((r) => r.fixture.division === division), [data, division]);
-  const leagueName = LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
+
+  // Al cargar, si la liga elegida no tiene partidos, saltar a la primera que si.
+  useEffect(() => {
+    if (!data) return;
+    const counts = new Map<string, number>();
+    for (const row of data.rows) counts.set(row.fixture.division, (counts.get(row.fixture.division) ?? 0) + 1);
+    if ((counts.get(division) ?? 0) === 0) {
+      const withFixtures = LEAGUES.find(([code]) => (counts.get(code) ?? 0) > 0);
+      if (withFixtures) setDivision(withFixtures[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   return (
     <div>
-      <div className="pro-head"><h1>Jornada en curso</h1><p>Pronóstico de cada partido de la jornada. Toca una tarjeta para ver la ficha.</p></div>
-      <div className="pro-tabs" role="tablist" aria-label="Ligas">
-        {LEAGUES.map(([code, name]) => (
-          <button key={code} type="button" className="pro-tab" aria-selected={division === code} onClick={() => setDivision(code)}>{name}</button>
-        ))}
-      </div>
+      <div className="pro-head"><h1>Próxima jornada</h1><p>Pronóstico de los próximos partidos. Toca una tarjeta para ver la ficha.</p></div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando pronósticos…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       {!loading && !error && (
         <>
-          <p className="pro-count">{leagueName} · <b>{byLeague.length}</b> partidos</p>
+          <p className="pro-count">{leagueName(division)} · <b>{byLeague.length}</b> partidos</p>
           {byLeague.length === 0 && (
             <div className="pro-state">
-              Aún no hay partidos cargados para {leagueName}. Se llenan cuando se publica la
-              próxima jornada; el job semanal los carga automáticamente. Mientras tanto, revisa
+              Aún no hay partidos futuros cargados para {leagueName(division)}. Se llenan cuando se
+              publica la próxima jornada; el job semanal los carga. Mientras tanto, revisa
               <b> Resultados</b> y <b>Modelos</b>.
             </div>
           )}
@@ -137,7 +164,7 @@ function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
               const probs = [pred.prob_home, pred.prob_draw, pred.prob_away];
               return (
                 <MatchCard key={row.fixture.match_id ?? `${row.fixture.home_team}-${row.fixture.kickoff_utc}`}
-                  league={leagueName} when={fmtKickoff(row.fixture.kickoff_utc)}
+                  league={leagueName(division)} when={fmtKickoff(row.fixture.kickoff_utc)}
                   home={row.fixture.home_team} away={row.fixture.away_team} probs={probs}
                   onClick={row.fixture.match_id ? () => onOpen(row.fixture.match_id as number) : undefined} />
               );
@@ -168,14 +195,19 @@ function ResRow({ r }: { r: HistoryRow }) {
 }
 
 function Resultados() {
-  const { data, loading, error } = useJson<History>(`${apiBaseUrl}/predictions/history?model=${HISTORY_MODEL}&limit=40`);
+  const [division, setDivision] = useState("PER1");
+  const model = modelForLeague(division);
+  const { data, loading, error } = useJson<History>(
+    `${apiBaseUrl}/predictions/history?model=${model}&divisions=${division}&limit=120`,
+  );
   const rows = data?.rows ?? [];
   const pending = rows.filter((r) => r.hit === null);
   const played = rows.filter((r) => r.hit !== null);
   const s = data?.summary;
   return (
     <div>
-      <div className="pro-head"><h1>Historial y resultados</h1><p>Cada pronóstico pasado con si acertó o falló, y los que aún están por jugarse.</p></div>
+      <div className="pro-head"><h1>Historial y resultados</h1><p>Cada pronóstico pasado con si acertó o falló ({leagueName(division)}, modelo <b>{model}</b>).</p></div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando historial…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       {s && (
@@ -188,7 +220,7 @@ function Resultados() {
       {pending.length > 0 && (<><div className="pro-subhead">Pendientes</div><div className="pro-rows">{pending.map((r) => <ResRow key={r.match_id} r={r} />)}</div></>)}
       {groupByDate(played).map(([date, group]) => (
         <div key={date}>
-          <div className="pro-subhead">{date}</div>
+          <div className="pro-subhead pro-datehead">{date} <span className="pro-datecount">{group.length}</span></div>
           <div className="pro-rows">{group.map((r) => <ResRow key={r.match_id} r={r} />)}</div>
         </div>
       ))}
@@ -242,11 +274,15 @@ function Calibracion() {
 }
 
 function Modelos() {
-  const { data, loading, error } = useJson<Rankings>(`${apiBaseUrl}/models/rankings?min_matches=100`);
+  const [division, setDivision] = useState("PER1");
+  const { data, loading, error } = useJson<Rankings>(
+    `${apiBaseUrl}/models/rankings?min_matches=50&divisions=${division}`,
+  );
   const rows = data?.rows ?? [];
   return (
     <div>
-      <div className="pro-head"><h1>¿Qué modelo predice mejor?</h1><p>Ranking honesto por RPS (menor = mejor). El mercado sigue siendo el más difícil de vencer.</p></div>
+      <div className="pro-head"><h1>¿Qué modelo predice mejor?</h1><p>Ranking honesto por RPS (menor = mejor) en {leagueName(division)}.</p></div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando modelos…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       <div className="pro-models" style={{ marginTop: 14 }}>

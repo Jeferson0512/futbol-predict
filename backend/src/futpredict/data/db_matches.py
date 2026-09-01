@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, aliased
 
 from futpredict.data.football_data_uk_catalog import (
     DIVISIONS_BY_CODE,
+    division_for_league_code,
     normalize_season_code,
     season_range,
     season_years,
@@ -176,10 +177,14 @@ def division_code_for_league(league: League) -> str:
     source_division = source_ids.get(SOURCE_NAME)
     if isinstance(source_division, str) and source_division:
         return source_division
-    return league.code
+    mapped = division_for_league_code(league.code)
+    return mapped if mapped is not None else league.code
 
 
 def season_code_from_years(year_start: int, year_end: int) -> str:
+    if year_end == year_start:
+        # Temporada por ano calendario (p.ej. Liga 1 Peru).
+        return str(year_start)
     if year_end != year_start + 1:
         msg = f"season years must be consecutive, got {year_start}-{year_end}"
         raise ValueError(msg)
