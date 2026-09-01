@@ -26,6 +26,7 @@ from futpredict.evaluation.db_predictions import (
     freeze_walk_forward_predictions,
 )
 from futpredict.evaluation.db_walk_forward import upsert_walk_forward_metrics
+from futpredict.evaluation.ml_walk_forward import run_configured_ml_walk_forward
 from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
     run_expanding_walk_forward,
@@ -35,9 +36,10 @@ from futpredict.evaluation.walk_forward_predictions import (
 )
 from futpredict.features.db_features import (
     load_feature_matches_from_db,
+    load_feature_payloads_from_db,
     upsert_feature_snapshots,
 )
-from futpredict.features.rolling import build_rolling_feature_snapshots
+from futpredict.features.rolling import FEATURE_SET_VERSION, build_rolling_feature_snapshots
 from futpredict.ingest.normalized import (
     build_normalized_batch,
     build_normalized_fixture_batch,
@@ -293,10 +295,28 @@ def _walk_forward_metrics(
         end_season=cfg.end_season,
         initial_train_seasons=cfg.initial_train_seasons,
     )
+    payloads = load_feature_payloads_from_db(
+        session,
+        feature_set_version=FEATURE_SET_VERSION,
+        start_season=cfg.start_season,
+        end_season=cfg.end_season,
+        division_codes=divisions,
+    )
+    ml_metrics = run_configured_ml_walk_forward(
+        matches,
+        payloads,
+        start_season=cfg.start_season,
+        end_season=cfg.end_season,
+        initial_train_seasons=cfg.initial_train_seasons,
+    )
+    metrics = [*metrics, *ml_metrics]
     if not dry_run:
         summary = upsert_walk_forward_metrics(session, metrics)
-        return f"model_versions={summary.model_versions} metrics={summary.metrics}"
-    return f"metrics={len(metrics)}"
+        return (
+            f"model_versions={summary.model_versions} metrics={summary.metrics} "
+            f"ml_windows={len(ml_metrics)}"
+        )
+    return f"metrics={len(metrics)} ml_windows={len(ml_metrics)}"
 
 
 def _freeze_walk_forward_predictions(

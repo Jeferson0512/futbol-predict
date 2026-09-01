@@ -9,7 +9,11 @@ import typer
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from futpredict.data.db_matches import load_match_results_from_db
+from futpredict.data.db_matches import (
+    league_codes_from_divisions,
+    load_match_results_from_db,
+)
+from futpredict.data.db_understat import UnderstatStoreSummary, store_understat_xg
 from futpredict.data.football_data_uk_catalog import (
     DEFAULT_BIG_FIVE_END_SEASON,
     DEFAULT_BIG_FIVE_START_SEASON,
@@ -46,6 +50,10 @@ from futpredict.evaluation.db_walk_forward import (
     WalkForwardPersistenceSummary,
     upsert_walk_forward_metrics,
 )
+from futpredict.evaluation.ml_walk_forward import (
+    ml_models_for_keys,
+    run_configured_ml_walk_forward,
+)
 from futpredict.evaluation.mlflow_tracking import (
     DEFAULT_MLFLOW_EXPERIMENT_NAME,
     MlflowSyncSummary,
@@ -64,10 +72,12 @@ from futpredict.evaluation.walk_forward_predictions import (
 from futpredict.features.db_features import (
     FeaturePersistenceSummary,
     load_feature_matches_from_db,
+    load_feature_payloads_from_db,
     upsert_feature_snapshots,
 )
 from futpredict.features.rolling import (
     FEATURE_SET_VERSION,
+    FEATURE_SET_VERSION_V2,
     FeatureMatch,
     FeatureSnapshot,
     build_rolling_feature_snapshots,
@@ -90,6 +100,11 @@ from futpredict.ingest.providers.football_data_uk import (
     parse_matches,
     read_csv_file,
 )
+from futpredict.ingest.providers.understat import (
+    UnderstatMatchXg,
+    fetch_understat_xg,
+    understat_xg_coverage,
+)
 from futpredict.jobs.weekly import (
     WeeklyPipelineConfig,
     WeeklyPipelineError,
@@ -109,6 +124,7 @@ from futpredict.models.persisted_elo import (
     load_elo_matches_from_db,
     upsert_elo_rating_snapshots,
 )
+from futpredict.models.tabular import FEATURE_KEYS, FEATURE_KEYS_V2
 
 app = typer.Typer(help="Herramientas locales del proyecto Futbol Predict.")
 
@@ -322,6 +338,10 @@ def walk_forward_db(
         False,
         help="Usar solo cache local de Club Elo, sin descargar.",
     ),
+    include_ml: bool = typer.Option(
+        True,
+        help="Incluir el modelo ML (regresion logistica) sobre features rolling_v1.",
+    ),
     dry_run: bool = typer.Option(False, help="Calcular walk-forward sin escribir metricas."),
 ) -> None:
     divisions = big_five_division_codes()
@@ -348,11 +368,214 @@ def walk_forward_db(
         initial_train_seasons=initial_train_seasons,
         extra_prediction_providers=extra_providers,
     )
+    if include_ml:
+        metrics = [
+            *metrics,
+            *_run_ml_walk_forward_or_exit(
+                matches,
+                start_season=start_season,
+                end_season=end_season,
+                initial_train_seasons=initial_train_seasons,
+            ),
+        ]
     _echo_walk_forward_summary(metrics)
     if dry_run:
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("understat-xg-coverage")
+def understat_xg_coverage_command(
+    division: str = typer.Option(..., help="Codigo de liga, por ejemplo E0."),
+    season: str = typer.Option(..., help="Codigo de temporada, por ejemplo 2324."),
+    cache_dir: Path = typer.Option(
+        Path("data/raw/understat"),
+        help="Carpeta de cache local para soccerdata/Understat.",
+    ),
+) -> None:
+    division_code = division.upper()
+    league_codes = league_codes_from_divisions([division_code])
+    if not league_codes:
+        typer.echo(f"no hay liga para la division {division_code}", err=True)
+        raise typer.Exit(1)
+    league_code = league_codes[0]
+
+    matches = _load_db_match_results(
+        start_season=season,
+        end_season=season,
+        divisions=[division_code],
+    )
+    db_fixtures = [(match.home_team, match.away_team) for match in matches]
+
+    try:
+        understat_matches = fetch_understat_xg(
+            league_code=league_code,
+            season=season,
+            cache_dir=cache_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnostico: red/scraping de Understat
+        typer.echo(f"Understat fetch failed: {exc.__class__.__name__}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    coverage = understat_xg_coverage(
+        db_fixtures,
+        understat_matches,
+        league_code=league_code,
+        season=season,
+    )
+    typer.echo("Understat xG coverage")
+    typer.echo(f"league={coverage.league_code} season={coverage.season}")
+    typer.echo(f"understat_matches={coverage.understat_matches}")
+    typer.echo(f"db_matches={coverage.db_matches}")
+    typer.echo(f"matched={coverage.matched}")
+    typer.echo(f"coverage={coverage.coverage_ratio:.4f}")
+    if coverage.unmatched_understat_teams:
+        typer.echo(
+            "unmatched_understat_teams=" + ", ".join(coverage.unmatched_understat_teams)
+        )
+
+
+@app.command("load-understat-xg-big-five")
+def load_understat_xg_big_five(
+    start_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_START_SEASON,
+        help="Temporada inicial, por ejemplo 1617.",
+    ),
+    end_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_END_SEASON,
+        help="Temporada final, por ejemplo 2526.",
+    ),
+    cache_dir: Path = typer.Option(
+        Path("data/raw/understat"),
+        help="Carpeta de cache local para soccerdata/Understat.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        help="Solo sondear cobertura y equipos sin mapear, sin escribir xG.",
+    ),
+) -> None:
+    divisions = big_five_division_codes()
+    seasons = season_range(start_season, end_season)
+    unmatched_teams: set[str] = set()
+    total_updated = 0
+    typer.echo("division,season,understat,db,matched_or_updated,unmatched")
+    for division in divisions:
+        league_code = league_codes_from_divisions([division])[0]
+        for season in seasons:
+            matches = _load_db_match_results(
+                start_season=season,
+                end_season=season,
+                divisions=[division],
+            )
+            try:
+                understat_matches = fetch_understat_xg(
+                    league_code=league_code,
+                    season=season,
+                    cache_dir=cache_dir,
+                )
+            except Exception as exc:  # noqa: BLE001 - red/scraping de Understat
+                typer.echo(f"{division},{season},ERROR,{exc.__class__.__name__}", err=True)
+                continue
+
+            if dry_run:
+                coverage = understat_xg_coverage(
+                    [(match.home_team, match.away_team) for match in matches],
+                    understat_matches,
+                    league_code=league_code,
+                    season=season,
+                )
+                unmatched_teams.update(coverage.unmatched_understat_teams)
+                typer.echo(
+                    f"{division},{season},{coverage.understat_matches},"
+                    f"{coverage.db_matches},{coverage.matched},"
+                    f"{len(coverage.unmatched_understat_teams)}"
+                )
+            else:
+                summary = _store_understat_xg_or_exit(understat_matches, matches)
+                total_updated += summary.updated
+                typer.echo(
+                    f"{division},{season},{summary.understat_matches},"
+                    f"{summary.db_matches},{summary.updated},{summary.unmatched}"
+                )
+
+    if unmatched_teams:
+        typer.echo(
+            "unmatched_understat_teams=" + ", ".join(sorted(unmatched_teams)),
+            err=True,
+        )
+    if not dry_run:
+        typer.echo(f"total_updated={total_updated}")
+
+
+@app.command("backtest-ml-walk-forward-db")
+def backtest_ml_walk_forward_db(
+    start_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_START_SEASON,
+        help="Temporada inicial, por ejemplo 1617.",
+    ),
+    end_season: str = typer.Option(
+        DEFAULT_BIG_FIVE_END_SEASON,
+        help="Temporada final, por ejemplo 2526.",
+    ),
+    initial_train_seasons: int = typer.Option(
+        DEFAULT_INITIAL_TRAIN_SEASONS,
+        help="Temporadas iniciales usadas como entrenamiento historico.",
+    ),
+    feature_set: str = typer.Option(
+        FEATURE_SET_VERSION,
+        help=f"Feature set: {FEATURE_SET_VERSION} (base) o {FEATURE_SET_VERSION_V2} (con xG).",
+    ),
+) -> None:
+    divisions = big_five_division_codes()
+    matches = _load_db_match_results(
+        start_season=start_season,
+        end_season=end_season,
+        divisions=divisions,
+    )
+    payloads = _load_db_feature_payloads(
+        feature_set_version=feature_set,
+        start_season=start_season,
+        end_season=end_season,
+        divisions=divisions,
+    )
+    feature_keys = FEATURE_KEYS_V2 if feature_set == FEATURE_SET_VERSION_V2 else FEATURE_KEYS
+    try:
+        ml_metrics = run_configured_ml_walk_forward(
+            matches,
+            payloads,
+            start_season=start_season,
+            end_season=end_season,
+            initial_train_seasons=initial_train_seasons,
+            models=ml_models_for_keys(feature_keys),
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    baseline_metrics = _run_walk_forward_or_exit(
+        matches,
+        start_season=start_season,
+        end_season=end_season,
+        initial_train_seasons=initial_train_seasons,
+    )
+
+    if not ml_metrics:
+        typer.echo(
+            "No hay features suficientes para el modelo logistico. "
+            f"Corre build-rolling-features-db (feature_set_version={FEATURE_SET_VERSION}).",
+            err=True,
+        )
+    combined = [*baseline_metrics, *ml_metrics]
+    ml_windows = {
+        (metric.division, metric.evaluation_season)
+        for metric in ml_metrics
+    }
+    typer.echo(
+        f"Walk-forward ML vs baselines {start_season}-{end_season} - "
+        f"ml windows={len(ml_windows)}"
+    )
+    _echo_metric_csv(summarize_walk_forward_metrics(combined))
 
 
 @app.command("club-elo-coverage-db")
@@ -829,6 +1052,10 @@ def build_rolling_features_db(
         DEFAULT_BIG_FIVE_END_SEASON,
         help="Temporada final, por ejemplo 2526.",
     ),
+    with_xg: bool = typer.Option(
+        False,
+        help="Incluir features de xG (feature set rolling_v2). Requiere xG cargado.",
+    ),
     dry_run: bool = typer.Option(False, help="Calcular features sin escribir en PostgreSQL."),
 ) -> None:
     divisions = big_five_division_codes()
@@ -837,9 +1064,14 @@ def build_rolling_features_db(
         end_season=end_season,
         divisions=divisions,
     )
-    snapshots = build_rolling_feature_snapshots(feature_matches)
+    feature_set_version = FEATURE_SET_VERSION_V2 if with_xg else FEATURE_SET_VERSION
+    snapshots = build_rolling_feature_snapshots(
+        feature_matches,
+        feature_set_version=feature_set_version,
+        include_xg=with_xg,
+    )
     _echo_feature_batch(
-        feature_set_version=FEATURE_SET_VERSION,
+        feature_set_version=feature_set_version,
         matches=len(feature_matches),
         snapshots=len(snapshots),
     )
@@ -1191,6 +1423,48 @@ def _load_db_match_results(
         raise typer.Exit(1) from exc
 
 
+def _store_understat_xg_or_exit(
+    understat_matches: list[UnderstatMatchXg],
+    matches: list[MatchResult],
+) -> UnderstatStoreSummary:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            return store_understat_xg(session, understat_matches, matches)
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+
+
+def _load_db_feature_payloads(
+    *,
+    feature_set_version: str,
+    start_season: str,
+    end_season: str,
+    divisions: list[str],
+) -> dict[int, dict[str, float | int | None]]:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            return load_feature_payloads_from_db(
+                session,
+                feature_set_version=feature_set_version,
+                start_season=start_season,
+                end_season=end_season,
+                division_codes=divisions,
+            )
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
 def _load_db_feature_matches(
     *,
     start_season: str,
@@ -1282,6 +1556,32 @@ def _run_walk_forward_or_exit(
             end_season=end_season,
             initial_train_seasons=initial_train_seasons,
             extra_prediction_providers=extra_prediction_providers,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _run_ml_walk_forward_or_exit(
+    matches: list[MatchResult],
+    *,
+    start_season: str,
+    end_season: str,
+    initial_train_seasons: int,
+) -> list[WalkForwardMetric]:
+    payloads = _load_db_feature_payloads(
+        feature_set_version=FEATURE_SET_VERSION,
+        start_season=start_season,
+        end_season=end_season,
+        divisions=big_five_division_codes(),
+    )
+    try:
+        return run_configured_ml_walk_forward(
+            matches,
+            payloads,
+            start_season=start_season,
+            end_season=end_season,
+            initial_train_seasons=initial_train_seasons,
         )
     except ValueError as exc:
         typer.echo(str(exc), err=True)

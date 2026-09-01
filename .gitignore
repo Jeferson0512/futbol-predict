@@ -24,6 +24,8 @@ logs/
 data/raw/
 data/cache/
 data/processed/
+# Cache scraped de Understat (re-descargable via soccerdata).
+backend/data/raw/understat/
 mlruns/
 frontend/dist/
 

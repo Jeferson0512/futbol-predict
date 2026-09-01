@@ -21,6 +21,9 @@ ALGORITHM_BY_MODEL: dict[str, str] = {
     "historical_frequency": "historical_frequency",
     "elo_simple": "elo",
     "market_avg_odds": "market_odds",
+    "logistic_regression": "multinomial_logit",
+    "gradient_boosting": "gradient_boosting",
+    "logistic_calibrated": "logistic_isotonic",
 }
 
 

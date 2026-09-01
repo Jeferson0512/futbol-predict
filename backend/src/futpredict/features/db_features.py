@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import Table, select
@@ -44,6 +45,8 @@ def load_feature_matches_from_db(
             Match.away_team_id,
             Match.home_goals,
             Match.away_goals,
+            Match.home_xg,
+            Match.away_xg,
         )
         .join(League, Match.league_id == League.id)
         .join(Season, Match.season_id == Season.id)
@@ -70,9 +73,46 @@ def load_feature_matches_from_db(
                 away_team_id=cast(int, row[4]),
                 home_goals=_required_score(cast(int | None, row[5]), "home_goals"),
                 away_goals=_required_score(cast(int | None, row[6]), "away_goals"),
+                home_xg=_optional_xg(row[7]),
+                away_xg=_optional_xg(row[8]),
             )
         )
     return matches
+
+
+def load_feature_payloads_from_db(
+    session: Session,
+    *,
+    feature_set_version: str,
+    start_season: str,
+    end_season: str,
+    division_codes: Sequence[str] | None = None,
+) -> dict[int, dict[str, float | int | None]]:
+    seasons = season_range(start_season, end_season)
+    start_year, _start_end_year = season_years(seasons[0])
+    _end_start_year, end_year = season_years(seasons[-1])
+    league_codes = league_codes_from_divisions(division_codes)
+    if division_codes is not None and not league_codes:
+        return {}
+
+    statement = (
+        select(Feature.match_id, Feature.payload)
+        .join(Match, Match.id == Feature.match_id)
+        .join(League, Match.league_id == League.id)
+        .join(Season, Match.season_id == Season.id)
+        .where(
+            Feature.feature_set_version == feature_set_version,
+            Season.year_start >= start_year,
+            Season.year_end <= end_year,
+        )
+    )
+    if league_codes:
+        statement = statement.where(League.code.in_(league_codes))
+
+    payloads: dict[int, dict[str, float | int | None]] = {}
+    for row in session.execute(statement):
+        payloads[cast(int, row[0])] = cast("dict[str, float | int | None]", row[1])
+    return payloads
 
 
 def upsert_feature_snapshots(
@@ -114,3 +154,11 @@ def _required_score(value: int | None, field_name: str) -> int:
         msg = f"finished match is missing {field_name}"
         raise ValueError(msg)
     return value
+
+
+def _optional_xg(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal | float | int):
+        return float(value)
+    return float(str(value))

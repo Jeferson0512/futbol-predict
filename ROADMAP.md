@@ -76,12 +76,22 @@
 ## Fase 6 - ML tabular
 
 - [x] Primer set de features temporales anti-leakage.
-- [ ] xG desde Understat via soccerdata.
-- [ ] Regresion logistica multinomial.
-- [ ] XGBoost o LightGBM.
-- [ ] Calibracion Platt/isotonica.
+- [x] Regresion logistica multinomial (`backtest-ml-walk-forward-db`).
+- [x] xG desde Understat via soccerdata (feature set `rolling_v2`, cobertura 100%).
+- [x] Gradient boosting (HistGradientBoosting; XGBoost/LightGBM opcional a futuro).
+- [x] Calibracion Platt/isotonica.
 
-## Fase 7 - Expansion
+## Fase 7 - Vista amigable de predicciones
+
+- [ ] Pestanas por liga (Big-5).
+- [ ] Tarjetas por partido con barra 1X2 y pronostico recomendado.
+- [ ] Vista nueva aparte del dashboard analitico.
+- [ ] Consumir `/fixtures/predictions` con filtro por division.
+
+Prototipo aprobado (maqueta con datos de ejemplo) pendiente de implementar en el
+frontend React. Ver notas en el handoff.
+
+## Fase 8 - Expansion
 
 - [ ] Brasil.
 - [ ] Argentina.
