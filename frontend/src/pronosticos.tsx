@@ -88,7 +88,8 @@ function fmtKickoff(iso: string): string {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const s = new Date(iso).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
@@ -168,7 +169,7 @@ function ResRow({ r }: { r: HistoryRow }) {
 }
 
 function Resultados() {
-  const { data, loading, error } = useJson<History>(`${apiBaseUrl}/predictions/history?model=${HISTORY_MODEL}&limit=40`);
+  const { data, loading, error } = useJson<History>(`${apiBaseUrl}/predictions/history?model=${HISTORY_MODEL}&limit=120`);
   const rows = data?.rows ?? [];
   const pending = rows.filter((r) => r.hit === null);
   const played = rows.filter((r) => r.hit !== null);
@@ -188,7 +189,7 @@ function Resultados() {
       {pending.length > 0 && (<><div className="pro-subhead">Pendientes</div><div className="pro-rows">{pending.map((r) => <ResRow key={r.match_id} r={r} />)}</div></>)}
       {groupByDate(played).map(([date, group]) => (
         <div key={date}>
-          <div className="pro-subhead">{date}</div>
+          <div className="pro-subhead pro-datehead">{date} <span className="pro-datecount">{group.length}</span></div>
           <div className="pro-rows">{group.map((r) => <ResRow key={r.match_id} r={r} />)}</div>
         </div>
       ))}
