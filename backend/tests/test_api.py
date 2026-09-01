@@ -18,6 +18,76 @@ def test_health() -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_prediction_history_endpoint(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "futpredict.api.routes.prediction_history_summary",
+        lambda session, model_name, division_codes: {
+            "model": model_name,
+            "total": 3,
+            "evaluated": 2,
+            "pending": 1,
+            "hits": 1,
+            "accuracy": 0.5,
+            "avg_rps": 0.2,
+        },
+    )
+    monkeypatch.setattr(
+        "futpredict.api.routes.prediction_history_rows",
+        lambda session, model_name, division_codes, status, limit: [
+            {
+                "match_id": 7,
+                "kickoff_utc": datetime(2026, 5, 24, 15, 0, tzinfo=UTC),
+                "league": "Premier League",
+                "home_team": "Villarreal",
+                "away_team": "Ath Madrid",
+                "status": "finished",
+                "home_goals": 5,
+                "away_goals": 1,
+                "model": model_name,
+                "prob_home": 0.6,
+                "prob_draw": 0.25,
+                "prob_away": 0.15,
+                "predicted_outcome": "H",
+                "predicted_pick": "Villarreal",
+                "actual_outcome": "H",
+                "hit": True,
+                "rps": 0.12,
+            },
+            {
+                "match_id": 8,
+                "kickoff_utc": datetime(2026, 8, 31, 15, 0, tzinfo=UTC),
+                "league": "Serie A",
+                "home_team": "Lecce",
+                "away_team": "Roma",
+                "status": "scheduled",
+                "home_goals": None,
+                "away_goals": None,
+                "model": model_name,
+                "prob_home": 0.13,
+                "prob_draw": 0.23,
+                "prob_away": 0.64,
+                "predicted_outcome": "A",
+                "predicted_pick": "Roma",
+                "actual_outcome": None,
+                "hit": None,
+                "rps": None,
+            },
+        ],
+    )
+
+    client = TestClient(create_app())
+    response = client.get("/predictions/history?model=market_avg_odds&limit=10")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["summary"]["accuracy"] == 0.5
+    assert payload["summary"]["pending"] == 1
+    assert len(payload["rows"]) == 2
+    assert payload["rows"][0]["hit"] is True
+    assert payload["rows"][0]["predicted_pick"] == "Villarreal"
+    assert payload["rows"][1]["hit"] is None
+
+
 def test_backtest_endpoint(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         "futpredict.api.routes.load_matches",

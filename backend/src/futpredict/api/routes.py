@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
@@ -24,6 +25,9 @@ from futpredict.api.schemas import (
     HealthResponse,
     ModelRankingResponse,
     ModelRankingRowResponse,
+    PredictionHistoryResponse,
+    PredictionHistoryRowResponse,
+    PredictionHistorySummaryResponse,
     PredictionStatusResponse,
     PredictionStatusRowResponse,
     UpcomingFixturesResponse,
@@ -51,6 +55,10 @@ from futpredict.evaluation.backtest import (
 from futpredict.evaluation.db_calibration import (
     calibration_curve_rows,
     calibration_status_rows,
+)
+from futpredict.evaluation.db_history import (
+    prediction_history_rows,
+    prediction_history_summary,
 )
 from futpredict.evaluation.db_models import champion_model_row, model_ranking_rows
 from futpredict.evaluation.db_predictions import prediction_status_rows
@@ -176,6 +184,72 @@ def prediction_status() -> PredictionStatusResponse:
             )
             for row in rows
         ]
+    )
+
+
+@router.get("/predictions/history", response_model=PredictionHistoryResponse)
+def prediction_history(
+    model: str = Query("market_avg_odds", min_length=1, max_length=120),
+    limit: int = Query(50, ge=1, le=200),
+    status: str = Query("all", pattern="^(all|evaluated|pending)$"),
+    divisions: str | None = Query(None, min_length=2),
+) -> PredictionHistoryResponse:
+    from futpredict.db.session import SessionLocal
+
+    division_codes = _division_codes_from_query(divisions)
+    try:
+        with SessionLocal() as session:
+            summary = prediction_history_summary(
+                session,
+                model_name=model,
+                division_codes=division_codes,
+            )
+            rows = prediction_history_rows(
+                session,
+                model_name=model,
+                division_codes=division_codes,
+                status=status,
+                limit=limit,
+            )
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"database unavailable: {exc.__class__.__name__}",
+        ) from exc
+
+    return PredictionHistoryResponse(
+        model=model,
+        summary=PredictionHistorySummaryResponse(
+            model=str(summary["model"]),
+            total=_required_int(summary["total"]),
+            evaluated=_required_int(summary["evaluated"]),
+            pending=_required_int(summary["pending"]),
+            hits=_required_int(summary["hits"]),
+            accuracy=_optional_float(summary["accuracy"]),
+            avg_rps=_optional_float(summary["avg_rps"]),
+        ),
+        rows=[
+            PredictionHistoryRowResponse(
+                match_id=_required_int(row["match_id"]),
+                kickoff_utc=cast(datetime, row["kickoff_utc"]),
+                league=str(row["league"]),
+                home_team=str(row["home_team"]),
+                away_team=str(row["away_team"]),
+                status=str(row["status"]),
+                home_goals=_optional_int(row["home_goals"]),
+                away_goals=_optional_int(row["away_goals"]),
+                model=str(row["model"]),
+                prob_home=_required_float(row["prob_home"]),
+                prob_draw=_required_float(row["prob_draw"]),
+                prob_away=_required_float(row["prob_away"]),
+                predicted_outcome=str(row["predicted_outcome"]),
+                predicted_pick=str(row["predicted_pick"]),
+                actual_outcome=_optional_str(row["actual_outcome"]),
+                hit=_optional_bool(row["hit"]),
+                rps=_optional_float(row["rps"]),
+            )
+            for row in rows
+        ],
     )
 
 
@@ -613,3 +687,21 @@ def _required_int(value: object) -> int:
     if isinstance(value, Decimal | float):
         return int(value)
     return int(str(value))
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return _required_int(value)
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)

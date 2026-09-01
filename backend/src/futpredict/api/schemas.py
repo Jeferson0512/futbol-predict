@@ -149,3 +149,39 @@ class FixturePredictionsResponse(BaseModel):
     days: int
     model_mode: str
     rows: list[FixturePredictionRowResponse]
+
+
+class PredictionHistoryRowResponse(BaseModel):
+    match_id: int
+    kickoff_utc: datetime
+    league: str
+    home_team: str
+    away_team: str
+    status: str
+    home_goals: int | None
+    away_goals: int | None
+    model: str
+    prob_home: float
+    prob_draw: float
+    prob_away: float
+    predicted_outcome: str
+    predicted_pick: str
+    actual_outcome: str | None
+    hit: bool | None
+    rps: float | None
+
+
+class PredictionHistorySummaryResponse(BaseModel):
+    model: str
+    total: int
+    evaluated: int
+    pending: int
+    hits: int
+    accuracy: float | None
+    avg_rps: float | None
+
+
+class PredictionHistoryResponse(BaseModel):
+    model: str
+    summary: PredictionHistorySummaryResponse
+    rows: list[PredictionHistoryRowResponse]
