@@ -367,6 +367,7 @@ def champion_model(
 @router.get("/fixtures/upcoming", response_model=UpcomingFixturesResponse)
 def upcoming_fixtures(
     days: int = Query(14, ge=1, le=120),
+    since_days: int = Query(0, ge=0, le=60),
     limit: int = Query(50, ge=1, le=200),
     divisions: str | None = Query(None, min_length=2),
 ) -> UpcomingFixturesResponse:
@@ -378,7 +379,7 @@ def upcoming_fixtures(
         with SessionLocal() as session:
             fixtures = load_upcoming_fixtures_from_db(
                 session,
-                start_at=generated_at,
+                start_at=generated_at - timedelta(days=since_days),
                 end_at=generated_at + timedelta(days=days),
                 division_codes=division_codes,
                 limit=limit,
@@ -401,6 +402,7 @@ def upcoming_fixtures(
 @router.get("/fixtures/predictions", response_model=FixturePredictionsResponse)
 def fixture_predictions(
     days: int = Query(14, ge=1, le=120),
+    since_days: int = Query(0, ge=0, le=60),
     limit: int = Query(50, ge=1, le=200),
     model: str = Query("best_available", min_length=1, max_length=120),
     divisions: str | None = Query(None, min_length=2),
@@ -414,7 +416,7 @@ def fixture_predictions(
         with SessionLocal() as session:
             fixtures = load_upcoming_fixtures_from_db(
                 session,
-                start_at=generated_at,
+                start_at=generated_at - timedelta(days=since_days),
                 end_at=generated_at + timedelta(days=days),
                 division_codes=division_codes,
                 limit=limit,
