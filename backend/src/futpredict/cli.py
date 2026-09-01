@@ -92,6 +92,7 @@ from futpredict.ingest.normalized import (
 )
 from futpredict.ingest.persistence import PersistenceSummary, load_normalized_batch
 from futpredict.ingest.providers.espn_peru import (
+    PERU_DIVISION,
     EspnPeruMatch,
     fetch_espn_peru_season,
 )
@@ -388,6 +389,55 @@ def walk_forward_db(
         typer.echo("Dry run: no database writes executed.")
         return
     _persist_walk_forward_metrics(metrics)
+
+
+@app.command("peru-walk-forward-db")
+def peru_walk_forward_db(
+    initial_train_seasons: int = typer.Option(
+        2,
+        min=1,
+        help="Temporadas iniciales de entrenamiento (Peru tiene 6: 2021-2026).",
+    ),
+    dry_run: bool = typer.Option(False, help="Calcular sin escribir en PostgreSQL."),
+) -> None:
+    matches = _load_db_match_results(
+        start_season="2021",
+        end_season="2627",
+        divisions=[PERU_DIVISION],
+    )
+    if not matches:
+        typer.echo("No hay partidos de Peru cargados. Corre load-peru-db.", err=True)
+        raise typer.Exit(1)
+    seasons = sorted({match.season for match in matches})
+    typer.echo(f"peru_seasons={','.join(seasons)} matches={len(matches)}")
+
+    try:
+        metrics = run_expanding_walk_forward(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+        predictions = run_expanding_walk_forward_predictions(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    _echo_walk_forward_summary(metrics)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+        return
+
+    _persist_walk_forward_metrics(metrics)
+    _persist_walk_forward_predictions(predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
 
 
 @app.command("load-peru-db")

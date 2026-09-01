@@ -45,8 +45,11 @@ def run_expanding_walk_forward(
     end_season: str,
     initial_train_seasons: int = DEFAULT_INITIAL_TRAIN_SEASONS,
     extra_prediction_providers: Sequence[PredictionProvider] | None = None,
+    seasons: Sequence[str] | None = None,
 ) -> list[WalkForwardMetric]:
-    seasons = season_range(start_season, end_season)
+    # `seasons` explicito soporta ligas fuera del formato football-data (p.ej.
+    # Liga 1 Peru, por ano calendario). Si no, se expande el rango estandar.
+    seasons = list(seasons) if seasons is not None else season_range(start_season, end_season)
     if initial_train_seasons < 1:
         msg = "initial_train_seasons must be positive"
         raise ValueError(msg)
