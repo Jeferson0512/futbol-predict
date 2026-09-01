@@ -15,6 +15,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const HISTORY_MODEL = "market_avg_odds";
 
 const LEAGUES: ReadonlyArray<readonly [string, string]> = [
+  ["PER1", "Liga 1 Perú"],
   ["E0", "Premier League"], ["SP1", "LaLiga"], ["I1", "Serie A"],
   ["D1", "Bundesliga"], ["F1", "Ligue 1"],
 ];
@@ -104,16 +105,28 @@ function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
 }
 
 function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
-  const [division, setDivision] = useState("E0");
+  const [division, setDivision] = useState("PER1");
   const { data, loading, error } = useJson<FixturePredictions>(
-    `${apiBaseUrl}/fixtures/predictions?days=21&since_days=10&limit=120&model=best_available`,
+    `${apiBaseUrl}/fixtures/predictions?days=60&limit=200&model=best_available`,
   );
   const byLeague = useMemo(() => (data?.rows ?? []).filter((r) => r.fixture.division === division), [data, division]);
   const leagueName = LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
 
+  // Al cargar, si la liga elegida no tiene partidos, saltar a la primera que si.
+  useEffect(() => {
+    if (!data) return;
+    const counts = new Map<string, number>();
+    for (const row of data.rows) counts.set(row.fixture.division, (counts.get(row.fixture.division) ?? 0) + 1);
+    if ((counts.get(division) ?? 0) === 0) {
+      const withFixtures = LEAGUES.find(([code]) => (counts.get(code) ?? 0) > 0);
+      if (withFixtures) setDivision(withFixtures[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   return (
     <div>
-      <div className="pro-head"><h1>Jornada en curso</h1><p>Pronóstico de cada partido de la jornada. Toca una tarjeta para ver la ficha.</p></div>
+      <div className="pro-head"><h1>Próxima jornada</h1><p>Pronóstico de los próximos partidos. Toca una tarjeta para ver la ficha.</p></div>
       <div className="pro-tabs" role="tablist" aria-label="Ligas">
         {LEAGUES.map(([code, name]) => (
           <button key={code} type="button" className="pro-tab" aria-selected={division === code} onClick={() => setDivision(code)}>{name}</button>

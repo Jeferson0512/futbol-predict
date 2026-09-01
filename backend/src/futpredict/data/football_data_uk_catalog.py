@@ -20,9 +20,21 @@ BIG_FIVE_DIVISIONS: tuple[Division, ...] = (
     Division(code="F1", league_code="ligue-1", name="Ligue 1", country="France"),
 )
 
-DIVISIONS_BY_CODE = {division.code: division for division in BIG_FIVE_DIVISIONS}
+# Ligas fuera de football-data.co.uk (Fase 8). No entran en big_five_division_codes.
+EXTRA_DIVISIONS: tuple[Division, ...] = (
+    Division(code="PER1", league_code="liga1-peru", name="Liga 1 Peru", country="Peru"),
+)
+
+ALL_DIVISIONS: tuple[Division, ...] = (*BIG_FIVE_DIVISIONS, *EXTRA_DIVISIONS)
+DIVISIONS_BY_CODE = {division.code: division for division in ALL_DIVISIONS}
+DIVISION_BY_LEAGUE_CODE = {division.league_code: division for division in ALL_DIVISIONS}
 DEFAULT_BIG_FIVE_START_SEASON = "1617"
 DEFAULT_BIG_FIVE_END_SEASON = "2526"
+
+
+def division_for_league_code(league_code: str) -> str | None:
+    division = DIVISION_BY_LEAGUE_CODE.get(league_code)
+    return division.code if division is not None else None
 
 
 def normalize_season_code(season: str) -> str:
