@@ -87,17 +87,32 @@ function fmtKickoff(iso: string): string {
   return d.toLocaleString("es-PE", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
+  const groups: Array<[string, HistoryRow[]]> = [];
+  for (const row of rows) {
+    const label = fmtDate(row.kickoff_utc);
+    const last = groups[groups.length - 1];
+    if (last && last[0] === label) last[1].push(row);
+    else groups.push([label, [row]]);
+  }
+  return groups;
+}
+
 function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
   const [division, setDivision] = useState("E0");
   const { data, loading, error } = useJson<FixturePredictions>(
-    `${apiBaseUrl}/fixtures/predictions?days=30&limit=80&model=best_available`,
+    `${apiBaseUrl}/fixtures/predictions?days=21&since_days=10&limit=120&model=best_available`,
   );
   const byLeague = useMemo(() => (data?.rows ?? []).filter((r) => r.fixture.division === division), [data, division]);
   const leagueName = LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
 
   return (
     <div>
-      <div className="pro-head"><h1>Próxima jornada</h1><p>Elige una liga y mira el pronóstico de cada partido. Toca una tarjeta para ver la ficha.</p></div>
+      <div className="pro-head"><h1>Jornada en curso</h1><p>Pronóstico de cada partido de la jornada. Toca una tarjeta para ver la ficha.</p></div>
       <div className="pro-tabs" role="tablist" aria-label="Ligas">
         {LEAGUES.map(([code, name]) => (
           <button key={code} type="button" className="pro-tab" aria-selected={division === code} onClick={() => setDivision(code)}>{name}</button>
@@ -108,7 +123,13 @@ function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
       {!loading && !error && (
         <>
           <p className="pro-count">{leagueName} · <b>{byLeague.length}</b> partidos</p>
-          {byLeague.length === 0 && <div className="pro-state">No hay fixtures cargados para esta liga todavía.</div>}
+          {byLeague.length === 0 && (
+            <div className="pro-state">
+              Aún no hay partidos cargados para {leagueName}. Se llenan cuando se publica la
+              próxima jornada; el job semanal los carga automáticamente. Mientras tanto, revisa
+              <b> Resultados</b> y <b>Modelos</b>.
+            </div>
+          )}
           <div className="pro-list">
             {byLeague.map((row: FixtureRow) => {
               const pred = row.predictions[0];
@@ -165,7 +186,15 @@ function Resultados() {
         </div>
       )}
       {pending.length > 0 && (<><div className="pro-subhead">Pendientes</div><div className="pro-rows">{pending.map((r) => <ResRow key={r.match_id} r={r} />)}</div></>)}
-      {played.length > 0 && (<><div className="pro-subhead">Ya jugados</div><div className="pro-rows">{played.map((r) => <ResRow key={r.match_id} r={r} />)}</div></>)}
+      {groupByDate(played).map(([date, group]) => (
+        <div key={date}>
+          <div className="pro-subhead">{date}</div>
+          <div className="pro-rows">{group.map((r) => <ResRow key={r.match_id} r={r} />)}</div>
+        </div>
+      ))}
+      {!loading && !error && played.length === 0 && pending.length === 0 && (
+        <div className="pro-state">Todavía no hay predicciones evaluadas para mostrar.</div>
+      )}
     </div>
   );
 }

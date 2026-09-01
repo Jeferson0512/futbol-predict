@@ -536,6 +536,18 @@
             }
           },
           {
+            "name": "since_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 0,
+              "default": 0,
+              "title": "Since Days"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -604,6 +616,18 @@
               "minimum": 1,
               "default": 14,
               "title": "Days"
+            }
+          },
+          {
+            "name": "since_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 0,
+              "default": 0,
+              "title": "Since Days"
             }
           },
           {
