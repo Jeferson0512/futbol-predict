@@ -330,12 +330,18 @@ def calibration_curves(
 @router.get("/models/rankings", response_model=ModelRankingResponse)
 def model_rankings(
     min_matches: int = Query(100, ge=1),
+    divisions: str | None = Query(None, min_length=2),
 ) -> ModelRankingResponse:
     from futpredict.db.session import SessionLocal
 
+    division_codes = _division_codes_from_query(divisions)
     try:
         with SessionLocal() as session:
-            rows = model_ranking_rows(session, min_matches=min_matches)
+            rows = model_ranking_rows(
+                session,
+                min_matches=min_matches,
+                division_codes=division_codes,
+            )
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,

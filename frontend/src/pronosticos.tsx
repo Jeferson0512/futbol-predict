@@ -25,6 +25,24 @@ const SECTIONS: ReadonlyArray<readonly [string, string]> = [
 ];
 const OUT = ["h", "d", "aw"] as const;
 
+// Modelo por liga: los Big-5 tienen mercado; Peru no (usa Elo).
+const LEAGUE_MODEL: Record<string, string> = { PER1: "elo_simple" };
+const modelForLeague = (division: string): string => LEAGUE_MODEL[division] ?? "market_avg_odds";
+const leagueName = (division: string): string =>
+  LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
+
+function LeagueTabs({ value, onChange }: { value: string; onChange: (division: string) => void }) {
+  return (
+    <div className="pro-tabs" role="tablist" aria-label="Ligas">
+      {LEAGUES.map(([code, name]) => (
+        <button key={code} type="button" className="pro-tab" aria-selected={value === code} onClick={() => onChange(code)}>
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function useJson<T>(url: string | null): { data: T | null; loading: boolean; error: string | null } {
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({
     data: null, loading: Boolean(url), error: null,
@@ -110,7 +128,6 @@ function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
     `${apiBaseUrl}/fixtures/predictions?days=60&limit=200&model=best_available`,
   );
   const byLeague = useMemo(() => (data?.rows ?? []).filter((r) => r.fixture.division === division), [data, division]);
-  const leagueName = LEAGUES.find((l) => l[0] === division)?.[1] ?? division;
 
   // Al cargar, si la liga elegida no tiene partidos, saltar a la primera que si.
   useEffect(() => {
@@ -127,20 +144,16 @@ function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <div>
       <div className="pro-head"><h1>Próxima jornada</h1><p>Pronóstico de los próximos partidos. Toca una tarjeta para ver la ficha.</p></div>
-      <div className="pro-tabs" role="tablist" aria-label="Ligas">
-        {LEAGUES.map(([code, name]) => (
-          <button key={code} type="button" className="pro-tab" aria-selected={division === code} onClick={() => setDivision(code)}>{name}</button>
-        ))}
-      </div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando pronósticos…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       {!loading && !error && (
         <>
-          <p className="pro-count">{leagueName} · <b>{byLeague.length}</b> partidos</p>
+          <p className="pro-count">{leagueName(division)} · <b>{byLeague.length}</b> partidos</p>
           {byLeague.length === 0 && (
             <div className="pro-state">
-              Aún no hay partidos cargados para {leagueName}. Se llenan cuando se publica la
-              próxima jornada; el job semanal los carga automáticamente. Mientras tanto, revisa
+              Aún no hay partidos futuros cargados para {leagueName(division)}. Se llenan cuando se
+              publica la próxima jornada; el job semanal los carga. Mientras tanto, revisa
               <b> Resultados</b> y <b>Modelos</b>.
             </div>
           )}
@@ -151,7 +164,7 @@ function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
               const probs = [pred.prob_home, pred.prob_draw, pred.prob_away];
               return (
                 <MatchCard key={row.fixture.match_id ?? `${row.fixture.home_team}-${row.fixture.kickoff_utc}`}
-                  league={leagueName} when={fmtKickoff(row.fixture.kickoff_utc)}
+                  league={leagueName(division)} when={fmtKickoff(row.fixture.kickoff_utc)}
                   home={row.fixture.home_team} away={row.fixture.away_team} probs={probs}
                   onClick={row.fixture.match_id ? () => onOpen(row.fixture.match_id as number) : undefined} />
               );
@@ -182,14 +195,19 @@ function ResRow({ r }: { r: HistoryRow }) {
 }
 
 function Resultados() {
-  const { data, loading, error } = useJson<History>(`${apiBaseUrl}/predictions/history?model=${HISTORY_MODEL}&limit=120`);
+  const [division, setDivision] = useState("PER1");
+  const model = modelForLeague(division);
+  const { data, loading, error } = useJson<History>(
+    `${apiBaseUrl}/predictions/history?model=${model}&divisions=${division}&limit=120`,
+  );
   const rows = data?.rows ?? [];
   const pending = rows.filter((r) => r.hit === null);
   const played = rows.filter((r) => r.hit !== null);
   const s = data?.summary;
   return (
     <div>
-      <div className="pro-head"><h1>Historial y resultados</h1><p>Cada pronóstico pasado con si acertó o falló, y los que aún están por jugarse.</p></div>
+      <div className="pro-head"><h1>Historial y resultados</h1><p>Cada pronóstico pasado con si acertó o falló ({leagueName(division)}, modelo <b>{model}</b>).</p></div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando historial…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       {s && (
@@ -256,11 +274,15 @@ function Calibracion() {
 }
 
 function Modelos() {
-  const { data, loading, error } = useJson<Rankings>(`${apiBaseUrl}/models/rankings?min_matches=100`);
+  const [division, setDivision] = useState("PER1");
+  const { data, loading, error } = useJson<Rankings>(
+    `${apiBaseUrl}/models/rankings?min_matches=50&divisions=${division}`,
+  );
   const rows = data?.rows ?? [];
   return (
     <div>
-      <div className="pro-head"><h1>¿Qué modelo predice mejor?</h1><p>Ranking honesto por RPS (menor = mejor). El mercado sigue siendo el más difícil de vencer.</p></div>
+      <div className="pro-head"><h1>¿Qué modelo predice mejor?</h1><p>Ranking honesto por RPS (menor = mejor) en {leagueName(division)}.</p></div>
+      <LeagueTabs value={division} onChange={setDivision} />
       {loading && <div className="pro-state">Cargando modelos…</div>}
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       <div className="pro-models" style={{ marginTop: 14 }}>

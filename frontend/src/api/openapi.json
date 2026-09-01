@@ -451,6 +451,23 @@
               "default": 100,
               "title": "Min Matches"
             }
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Divisions"
+            }
           }
         ],
         "responses": {
