@@ -8,6 +8,7 @@ from statistics import fmean
 from futpredict.features.guards import FeatureInput, assert_no_leakage
 
 FEATURE_SET_VERSION = "rolling_v1"
+FEATURE_SET_VERSION_V2 = "rolling_v2"
 RECENT_MATCH_LIMIT = 5
 
 type FeatureValue = float | int | None
@@ -23,6 +24,8 @@ class FeatureMatch:
     away_team_id: int
     home_goals: int
     away_goals: int
+    home_xg: float | None = None
+    away_xg: float | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,8 @@ class TeamMatchHistory:
     goals_for: int
     goals_against: int
     points: int
+    xg_for: float | None = None
+    xg_against: float | None = None
 
 
 @dataclass
@@ -57,6 +62,7 @@ def build_rolling_feature_snapshots(
     *,
     feature_set_version: str = FEATURE_SET_VERSION,
     recent_match_limit: int = RECENT_MATCH_LIMIT,
+    include_xg: bool = False,
 ) -> list[FeatureSnapshot]:
     if recent_match_limit <= 0:
         msg = "recent_match_limit must be positive"
@@ -87,59 +93,20 @@ def build_rolling_feature_snapshots(
                 league_last_kickoff.get(match.league_code),
             )
 
+            payload = _match_payload(
+                match,
+                home_history=home_history,
+                away_history=away_history,
+                league_aggregate=league_aggregate,
+                recent_match_limit=recent_match_limit,
+                include_xg=include_xg,
+            )
             snapshots.append(
                 FeatureSnapshot(
                     match_id=match.match_id,
                     feature_set_version=feature_set_version,
                     cutoff_utc=match.kickoff_utc,
-                    payload={
-                        "home_team_matches_before": len(home_history),
-                        "away_team_matches_before": len(away_history),
-                        "home_points_per_match_last_5": _avg_points(
-                            home_history,
-                            recent_match_limit,
-                        ),
-                        "away_points_per_match_last_5": _avg_points(
-                            away_history,
-                            recent_match_limit,
-                        ),
-                        "home_goals_for_per_match_last_5": _avg_goals_for(
-                            home_history,
-                            recent_match_limit,
-                        ),
-                        "away_goals_for_per_match_last_5": _avg_goals_for(
-                            away_history,
-                            recent_match_limit,
-                        ),
-                        "home_goals_against_per_match_last_5": _avg_goals_against(
-                            home_history,
-                            recent_match_limit,
-                        ),
-                        "away_goals_against_per_match_last_5": _avg_goals_against(
-                            away_history,
-                            recent_match_limit,
-                        ),
-                        "home_days_since_last_match": _days_since_last_match(
-                            home_history,
-                            match.kickoff_utc,
-                        ),
-                        "away_days_since_last_match": _days_since_last_match(
-                            away_history,
-                            match.kickoff_utc,
-                        ),
-                        "league_home_win_rate_before": _rate(
-                            league_aggregate.home_wins,
-                            league_aggregate.total_matches,
-                        ),
-                        "league_draw_rate_before": _rate(
-                            league_aggregate.draws,
-                            league_aggregate.total_matches,
-                        ),
-                        "league_away_win_rate_before": _rate(
-                            league_aggregate.away_wins,
-                            league_aggregate.total_matches,
-                        ),
-                    },
+                    payload=payload,
                 )
             )
 
@@ -147,6 +114,51 @@ def build_rolling_feature_snapshots(
             _append_finished_match(team_histories, league_aggregates, league_last_kickoff, match)
 
     return snapshots
+
+
+XG_FEATURE_KEYS: tuple[str, ...] = (
+    "home_xg_for_per_match_last_5",
+    "away_xg_for_per_match_last_5",
+    "home_xg_against_per_match_last_5",
+    "away_xg_against_per_match_last_5",
+)
+
+
+def _match_payload(
+    match: FeatureMatch,
+    *,
+    home_history: list[TeamMatchHistory],
+    away_history: list[TeamMatchHistory],
+    league_aggregate: LeagueAggregate,
+    recent_match_limit: int,
+    include_xg: bool,
+) -> FeaturePayload:
+    total = league_aggregate.total_matches
+    payload: FeaturePayload = {
+        "home_team_matches_before": len(home_history),
+        "away_team_matches_before": len(away_history),
+        "home_points_per_match_last_5": _avg_points(home_history, recent_match_limit),
+        "away_points_per_match_last_5": _avg_points(away_history, recent_match_limit),
+        "home_goals_for_per_match_last_5": _avg_goals_for(home_history, recent_match_limit),
+        "away_goals_for_per_match_last_5": _avg_goals_for(away_history, recent_match_limit),
+        "home_goals_against_per_match_last_5": _avg_goals_against(home_history, recent_match_limit),
+        "away_goals_against_per_match_last_5": _avg_goals_against(away_history, recent_match_limit),
+        "home_days_since_last_match": _days_since_last_match(home_history, match.kickoff_utc),
+        "away_days_since_last_match": _days_since_last_match(away_history, match.kickoff_utc),
+        "league_home_win_rate_before": _rate(league_aggregate.home_wins, total),
+        "league_draw_rate_before": _rate(league_aggregate.draws, total),
+        "league_away_win_rate_before": _rate(league_aggregate.away_wins, total),
+    }
+    if include_xg:
+        payload["home_xg_for_per_match_last_5"] = _avg_xg_for(home_history, recent_match_limit)
+        payload["away_xg_for_per_match_last_5"] = _avg_xg_for(away_history, recent_match_limit)
+        payload["home_xg_against_per_match_last_5"] = _avg_xg_against(
+            home_history, recent_match_limit
+        )
+        payload["away_xg_against_per_match_last_5"] = _avg_xg_against(
+            away_history, recent_match_limit
+        )
+    return payload
 
 
 def _append_finished_match(
@@ -162,6 +174,8 @@ def _append_finished_match(
             goals_for=match.home_goals,
             goals_against=match.away_goals,
             points=home_points,
+            xg_for=match.home_xg,
+            xg_against=match.away_xg,
         )
     )
     team_histories.setdefault(match.away_team_id, []).append(
@@ -170,6 +184,8 @@ def _append_finished_match(
             goals_for=match.away_goals,
             goals_against=match.home_goals,
             points=away_points,
+            xg_for=match.away_xg,
+            xg_against=match.home_xg,
         )
     )
     aggregate = league_aggregates.setdefault(match.league_code, LeagueAggregate())
@@ -215,6 +231,18 @@ def _avg_goals_for(history: list[TeamMatchHistory], limit: int) -> float | None:
 def _avg_goals_against(history: list[TeamMatchHistory], limit: int) -> float | None:
     recent = _recent_team_history(history, limit)
     return None if not recent else fmean(item.goals_against for item in recent)
+
+
+def _avg_xg_for(history: list[TeamMatchHistory], limit: int) -> float | None:
+    recent = _recent_team_history(history, limit)
+    values = [item.xg_for for item in recent if item.xg_for is not None]
+    return None if not values else fmean(values)
+
+
+def _avg_xg_against(history: list[TeamMatchHistory], limit: int) -> float | None:
+    recent = _recent_team_history(history, limit)
+    values = [item.xg_against for item in recent if item.xg_against is not None]
+    return None if not values else fmean(values)
 
 
 def _days_since_last_match(history: list[TeamMatchHistory], cutoff_utc: datetime) -> float | None:

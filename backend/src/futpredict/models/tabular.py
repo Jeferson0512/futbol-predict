@@ -32,6 +32,15 @@ FEATURE_KEYS: tuple[str, ...] = (
     "league_away_win_rate_before",
 )
 
+# Features de xG (feature set rolling_v2 = rolling_v1 + estas 4).
+XG_FEATURE_KEYS: tuple[str, ...] = (
+    "home_xg_for_per_match_last_5",
+    "away_xg_for_per_match_last_5",
+    "home_xg_against_per_match_last_5",
+    "away_xg_against_per_match_last_5",
+)
+FEATURE_KEYS_V2: tuple[str, ...] = (*FEATURE_KEYS, *XG_FEATURE_KEYS)
+
 OUTCOMES: tuple[str, str, str] = ("H", "D", "A")
 OUTCOME_INDEX: dict[str, int] = {"H": 0, "D": 1, "A": 2}
 

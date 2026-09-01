@@ -51,6 +51,19 @@ DEFAULT_ML_MODELS: tuple[tuple[ModelFactory, str], ...] = (
 )
 
 
+def ml_models_for_keys(feature_keys: Sequence[str]) -> list[tuple[ModelFactory, str]]:
+    """Fabricas de los modelos ML ligadas a un conjunto de features concreto."""
+    keys = tuple(feature_keys)
+    return [
+        (lambda: LogisticMatchModel(feature_keys=keys), LOGISTIC_MODEL_NAME),
+        (lambda: GradientBoostingMatchModel(feature_keys=keys), GRADIENT_BOOSTING_MODEL_NAME),
+        (
+            lambda: build_calibrated_logistic_model(feature_keys=keys),
+            CALIBRATED_LOGISTIC_MODEL_NAME,
+        ),
+    ]
+
+
 def run_configured_ml_walk_forward(
     matches: Sequence[MatchResult],
     feature_payloads: Mapping[int, FeatureValues],

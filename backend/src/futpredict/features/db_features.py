@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import Table, select
@@ -44,6 +45,8 @@ def load_feature_matches_from_db(
             Match.away_team_id,
             Match.home_goals,
             Match.away_goals,
+            Match.home_xg,
+            Match.away_xg,
         )
         .join(League, Match.league_id == League.id)
         .join(Season, Match.season_id == Season.id)
@@ -70,6 +73,8 @@ def load_feature_matches_from_db(
                 away_team_id=cast(int, row[4]),
                 home_goals=_required_score(cast(int | None, row[5]), "home_goals"),
                 away_goals=_required_score(cast(int | None, row[6]), "away_goals"),
+                home_xg=_optional_xg(row[7]),
+                away_xg=_optional_xg(row[8]),
             )
         )
     return matches
@@ -149,3 +154,11 @@ def _required_score(value: int | None, field_name: str) -> int:
         msg = f"finished match is missing {field_name}"
         raise ValueError(msg)
     return value
+
+
+def _optional_xg(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal | float | int):
+        return float(value)
+    return float(str(value))

@@ -41,9 +41,13 @@ class CalibratedMatchModel(TabularMatchModel):
         )
 
 
-def build_calibrated_logistic_model() -> CalibratedMatchModel:
+def build_calibrated_logistic_model(
+    *,
+    feature_keys: Sequence[str] = FEATURE_KEYS,
+) -> CalibratedMatchModel:
     return CalibratedMatchModel(
         build_logistic_estimator(),
         method="isotonic",
+        feature_keys=feature_keys,
         model_label="calibrated logistic model",
     )

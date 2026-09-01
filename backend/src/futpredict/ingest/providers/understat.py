@@ -57,6 +57,23 @@ UNDERSTAT_TEAM_REPLACEMENTS: dict[str, str] = {
     "Mainz 05": "Mainz",
     "VfB Stuttgart": "Stuttgart",
     "Clermont Foot": "Clermont",
+    "West Bromwich Albion": "West Brom",
+    "Deportivo La Coruna": "La Coruna",
+    "Real Oviedo": "Oviedo",
+    "Real Valladolid": "Valladolid",
+    "SD Huesca": "Huesca",
+    "Sporting Gijon": "Sp Gijon",
+    "Parma Calcio 1913": "Parma",
+    "SPAL 2013": "Spal",
+    "Arminia Bielefeld": "Bielefeld",
+    "Fortuna Duesseldorf": "Fortuna Dusseldorf",
+    "Greuther Fuerth": "Greuther Furth",
+    "Hamburger SV": "Hamburg",
+    "Hannover 96": "Hannover",
+    "Hertha Berlin": "Hertha",
+    "Nuernberg": "Nurnberg",
+    "SC Bastia": "Bastia",
+    "Saint-Etienne": "St Etienne",
 }
 
 
