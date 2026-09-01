@@ -83,13 +83,13 @@
 
 ## Fase 7 - Vista amigable de predicciones
 
-- [ ] Pestanas por liga (Big-5).
-- [ ] Tarjetas por partido con barra 1X2 y pronostico recomendado.
-- [ ] Vista nueva aparte del dashboard analitico.
-- [ ] Consumir `/fixtures/predictions` con filtro por division.
+App React "Pronosticos" (toggle con el panel analitico), 5 vistas:
 
-Prototipo aprobado (maqueta con datos de ejemplo) pendiente de implementar en el
-frontend React. Ver notas en el handoff.
+- [x] Proximos: pestanas por liga (Big-5) + tarjetas 1X2 con pronostico recomendado.
+- [x] Resultados/Historial: aciertos/fallos por partido + resumen (endpoint `/predictions/history`).
+- [x] Calibracion amigable (reliability diagram sobre `/calibration/curves`).
+- [x] Comparador de modelos por RPS (`/models/rankings`).
+- [x] Ficha de partido: forma, xG, Elo, cuota, cara a cara (endpoint `/matches/{id}`).
 
 ## Fase 8 - Expansion
 
