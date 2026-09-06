@@ -125,7 +125,7 @@ function groupByDate(rows: HistoryRow[]): Array<[string, HistoryRow[]]> {
 function Proximos({ onOpen }: { onOpen: (id: number) => void }) {
   const [division, setDivision] = useState("PER1");
   const { data, loading, error } = useJson<FixturePredictions>(
-    `${apiBaseUrl}/fixtures/predictions?days=60&limit=200&model=best_available`,
+    `${apiBaseUrl}/fixtures/predictions?days=60&limit=400&model=best_available`,
   );
   const byLeague = useMemo(() => (data?.rows ?? []).filter((r) => r.fixture.division === division), [data, division]);
 

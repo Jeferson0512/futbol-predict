@@ -9,6 +9,7 @@ import typer
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from futpredict.data.db_espn_europe import EspnEuropeLoadSummary, load_all_espn_europe
 from futpredict.data.db_matches import (
     league_codes_from_divisions,
     load_match_results_from_db,
@@ -438,6 +439,45 @@ def peru_walk_forward_db(
     _persist_walk_forward_metrics(metrics)
     _persist_walk_forward_predictions(predictions)
     _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
+@app.command("load-espn-europe-db")
+def load_espn_europe_db(
+    season_start_year: int = typer.Option(
+        2026,
+        help="Ano de inicio de temporada europea (2026 = 2026/27).",
+    ),
+    dry_run: bool = typer.Option(False, help="Sondear cobertura sin escribir en PostgreSQL."),
+) -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    unmatched_all: set[str] = set()
+    try:
+        with SessionLocal() as session:
+            summaries: list[EspnEuropeLoadSummary] = load_all_espn_europe(
+                session,
+                season_start_year=season_start_year,
+                commit=not dry_run,
+            )
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo("division,season,fetched,loaded,finished,unmatched")
+    for summary in summaries:
+        typer.echo(
+            f"{summary.division},{summary.season},{summary.fetched},"
+            f"{summary.loaded},{summary.finished},{len(summary.unmatched_teams)}"
+        )
+        unmatched_all.update(summary.unmatched_teams)
+    if unmatched_all:
+        typer.echo("unmatched_teams=" + ", ".join(sorted(unmatched_all)), err=True)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
 
 
 @app.command("load-peru-db")

@@ -193,7 +193,7 @@ def prediction_status() -> PredictionStatusResponse:
 @router.get("/predictions/history", response_model=PredictionHistoryResponse)
 def prediction_history(
     model: str = Query("market_avg_odds", min_length=1, max_length=120),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     status: str = Query("all", pattern="^(all|evaluated|pending)$"),
     divisions: str | None = Query(None, min_length=2),
 ) -> PredictionHistoryResponse:
@@ -374,7 +374,7 @@ def champion_model(
 def upcoming_fixtures(
     days: int = Query(14, ge=1, le=120),
     since_days: int = Query(0, ge=0, le=60),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     divisions: str | None = Query(None, min_length=2),
 ) -> UpcomingFixturesResponse:
     from futpredict.db.session import SessionLocal
@@ -409,7 +409,7 @@ def upcoming_fixtures(
 def fixture_predictions(
     days: int = Query(14, ge=1, le=120),
     since_days: int = Query(0, ge=0, le=60),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     model: str = Query("best_available", min_length=1, max_length=120),
     divisions: str | None = Query(None, min_length=2),
 ) -> FixturePredictionsResponse:
