@@ -12,7 +12,7 @@ COPY pyproject.toml README.md alembic.ini ./
 COPY alembic ./alembic
 COPY src ./src
 
-RUN uv sync --no-dev
+RUN uv sync --no-dev --extra ml
 
 EXPOSE 8000
 

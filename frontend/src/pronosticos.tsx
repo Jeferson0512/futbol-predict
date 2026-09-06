@@ -201,7 +201,9 @@ function Resultados() {
     `${apiBaseUrl}/predictions/history?model=${model}&divisions=${division}&limit=120`,
   );
   const rows = data?.rows ?? [];
-  const pending = rows.filter((r) => r.hit === null);
+  const pending = rows
+    .filter((r) => r.hit === null)
+    .sort((a, b) => new Date(a.kickoff_utc).getTime() - new Date(b.kickoff_utc).getTime());
   const played = rows.filter((r) => r.hit !== null);
   const s = data?.summary;
   return (
@@ -217,7 +219,17 @@ function Resultados() {
           <div className="pro-stat"><div className="k">Evaluadas</div><div className="v">{s.evaluated.toLocaleString("es-PE")}</div><div className="s">+{s.pending} pendientes</div></div>
         </div>
       )}
-      {pending.length > 0 && (<><div className="pro-subhead">Pendientes</div><div className="pro-rows">{pending.map((r) => <ResRow key={r.match_id} r={r} />)}</div></>)}
+      {pending.length > 0 && (
+        <>
+          <div className="pro-subhead">Pendientes</div>
+          {groupByDate(pending).map(([date, group]) => (
+            <div key={`pending-${date}`}>
+              <div className="pro-subhead pro-datehead">{date} <span className="pro-datecount">{group.length}</span></div>
+              <div className="pro-rows">{group.map((r) => <ResRow key={r.match_id} r={r} />)}</div>
+            </div>
+          ))}
+        </>
+      )}
       {groupByDate(played).map(([date, group]) => (
         <div key={date}>
           <div className="pro-subhead pro-datehead">{date} <span className="pro-datecount">{group.length}</span></div>
