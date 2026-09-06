@@ -115,6 +115,7 @@ from futpredict.ingest.providers.understat import (
 from futpredict.jobs.weekly import (
     WeeklyPipelineConfig,
     WeeklyPipelineError,
+    daily_pipeline_config,
     run_weekly_pipeline,
 )
 from futpredict.models.club_elo import (
@@ -1464,6 +1465,46 @@ def run_weekly(
         champion_min_matches=champion_min_matches,
         include_ingest=include_ingest,
         include_future=include_future,
+    )
+    try:
+        with SessionLocal() as session:
+            results = run_weekly_pipeline(
+                session,
+                config=config,
+                dry_run=dry_run,
+                logger=typer.echo,
+            )
+    except WeeklyPipelineError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+
+    typer.echo("step,status,detail")
+    for result in results:
+        typer.echo(f"{result.name},{result.status},{result.detail}")
+
+
+@app.command("run-daily")
+def run_daily(
+    future_days: int = typer.Option(14, min=1, help="Ventana de dias para predicciones futuras."),
+    future_limit: int = typer.Option(200, min=1, help="Maximo de fixtures futuros a congelar."),
+    include_peru: bool = typer.Option(True, help="Refrescar tambien la Liga 1 de Peru."),
+    dry_run: bool = typer.Option(False, help="Ejecutar el pipeline sin escribir en PostgreSQL."),
+) -> None:
+    """Job diario ligero: refresca resultados (ESPN), Elo/features, evalua y congela.
+
+    No re-entrena ni baja los CSV de football-data; se apoya en el campeon que
+    dejo el ultimo `run-weekly`. Ideal para correr cada dia.
+    """
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    config = daily_pipeline_config(
+        future_days=future_days,
+        future_limit=future_limit,
+        include_peru_ingest=include_peru,
     )
     try:
         with SessionLocal() as session:

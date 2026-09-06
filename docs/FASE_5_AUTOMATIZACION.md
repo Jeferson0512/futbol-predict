@@ -67,13 +67,28 @@ Si no hay fixtures con `kickoff_utc` futuro, el comando reporta
 `eligible_fixtures=0` y no escribe nada; primero hay que cargar la jornada con
 `load-big-five-fixtures-db`.
 
-## Pendiente: programacion automatica
+## Programacion automatica (Fase 8): diario + semanal
 
-Falta decidir e implementar como se dispara el job cada semana. Opciones:
+El ciclo se parte en dos jobs para no re-entrenar todos los dias:
 
-- Windows Task Scheduler apuntando a `run-weekly` (natural en esta PC sin Docker).
-- Cron dentro de un contenedor (cuando se use Docker en otro entorno).
-- GitHub Actions programado.
+| Job | CLI | Script | Task Scheduler | Que hace |
+|-----|-----|--------|----------------|----------|
+| **Diario** (ligero) | `run-daily` | `scripts/run-daily.ps1` | `FutbolPredict-Daily`, todos los dias 07:00 | Refresca resultados/fixtures desde **ESPN** (Europa + Peru), reconstruye Elo/features, **evalua** las predicciones ya congeladas contra los resultados que fueron saliendo y **congela** la proxima jornada. No re-entrena ni baja football-data. Se apoya en el campeon del ultimo semanal. |
+| **Semanal** (pesado) | `run-weekly` | `scripts/run-weekly.ps1` | `FutbolPredict-Weekly`, lunes 08:00 | Todo lo anterior **mas** re-entrenar walk-forward, recalibrar y promover campeon. Ademas baja los CSV de football-data. |
 
-Tambien queda definir la fuente de refresco de fixtures futuros (hoy
-`football-data.co.uk`).
+El diario cubre lo que football-data publica con retraso: ESPN ya trae la
+temporada en curso (`ingest_espn`), asi que "partidos que faltan" -> "jugados"
+se actualiza cada dia de forma idempotente (upsert por identidad de fixture).
+
+Registro de las tareas (usuario actual, sin elevacion):
+
+```powershell
+schtasks /create /tn "FutbolPredict-Daily"  /sc DAILY        /st 07:00 /f `
+  /tr "powershell -NoProfile -ExecutionPolicy Bypass -File E:\Trabajos\Propios\futbol-predict\scripts\run-daily.ps1"
+schtasks /create /tn "FutbolPredict-Weekly" /sc WEEKLY /d MON /st 08:00 /f `
+  /tr "powershell -NoProfile -ExecutionPolicy Bypass -File E:\Trabajos\Propios\futbol-predict\scripts\run-weekly.ps1"
+```
+
+Pendiente (siguientes prioridades): xG dentro del semanal, calibracion propia de
+Peru, campeon por-liga para Peru (hoy sus futuras se congelan con Elo) y
+Brasil/Argentina.

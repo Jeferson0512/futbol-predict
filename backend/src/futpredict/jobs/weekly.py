@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
 from sqlalchemy.orm import Session
 
+from futpredict.data.db_espn_europe import load_all_espn_europe
 from futpredict.data.db_matches import load_match_results_from_db
+from futpredict.data.db_peru import load_peru_matches
 from futpredict.data.football_data_uk_catalog import (
     DEFAULT_BIG_FIVE_END_SEASON,
     DEFAULT_BIG_FIVE_START_SEASON,
@@ -45,6 +47,10 @@ from futpredict.ingest.normalized import (
     build_normalized_fixture_batch,
 )
 from futpredict.ingest.persistence import load_normalized_batch
+from futpredict.ingest.providers.espn_peru import (
+    PERU_DIVISION,
+    fetch_espn_peru_season,
+)
 from futpredict.ingest.providers.football_data_uk import (
     download_many,
     load_matches,
@@ -57,6 +63,12 @@ from futpredict.models.persisted_elo import (
 )
 
 Logger = Callable[[str], None]
+
+
+def current_europe_season_start_year(today: date | None = None) -> int:
+    """Ano de inicio de la temporada europea en curso (2026 = 2026/27)."""
+    today = today or datetime.now(UTC).date()
+    return today.year if today.month >= 7 else today.year - 1
 
 
 @dataclass(frozen=True)
@@ -75,10 +87,22 @@ class WeeklyPipelineConfig:
     future_limit: int = 200
     champion_min_matches: int = 100
     include_ingest: bool = True
+    include_espn_ingest: bool = True
+    include_peru_ingest: bool = True
+    include_training: bool = True
     include_future: bool = True
     ingest_season: str = field(default_factory=current_season_code)
+    espn_season_start_year: int = field(default_factory=current_europe_season_start_year)
+    peru_year: int = field(default_factory=lambda: datetime.now(UTC).year)
+    espn_europe_divisions: tuple[str, ...] = ("E0", "SP1", "I1", "D1", "F1")
     cache_dir: Path = Path("data/raw/football-data-uk")
+    # Divisiones de entrenamiento (football-data: cuotas/xG). Solo Big-5.
     divisions: tuple[str, ...] = field(default_factory=lambda: tuple(big_five_division_codes()))
+    # Divisiones que se sirven al usuario (Elo/features/freeze). Big-5 + Peru;
+    # cada liga mantiene su propia escala, no se contaminan entre si.
+    serving_divisions: tuple[str, ...] = field(
+        default_factory=lambda: (*big_five_division_codes(), PERU_DIVISION)
+    )
 
 
 class WeeklyPipelineError(RuntimeError):
@@ -91,24 +115,52 @@ class WeeklyPipelineError(RuntimeError):
 def plan_weekly_steps(
     *,
     include_ingest: bool = True,
+    include_espn_ingest: bool = True,
+    include_training: bool = True,
     include_future: bool = True,
 ) -> list[str]:
-    """Orden canonico de pasos del pipeline semanal."""
+    """Orden canonico de pasos del pipeline.
+
+    El job **semanal** corre todo (``include_training=True``): re-entrena
+    walk-forward, recalibra y promueve campeon. El job **diario** es ligero
+    (``include_training=False``): solo refresca resultados, Elo/features y
+    evalua/congela, sin re-entrenar.
+    """
     steps: list[str] = []
     if include_ingest:
         steps.append("ingest_results")
-    steps += [
-        "rebuild_elo",
-        "rebuild_features",
-        "walk_forward_metrics",
-        "freeze_walk_forward_predictions",
-        "evaluate_predictions",
-        "build_calibration_bins",
-        "promote_champion",
-    ]
+    if include_espn_ingest:
+        steps.append("ingest_espn")
+    steps += ["rebuild_elo", "rebuild_features"]
+    if include_training:
+        steps += ["walk_forward_metrics", "freeze_walk_forward_predictions"]
+    steps.append("evaluate_predictions")
+    if include_training:
+        steps += ["build_calibration_bins", "promote_champion"]
     if include_future:
         steps.append("freeze_future_predictions")
     return steps
+
+
+def plan_daily_steps() -> list[str]:
+    """Pasos del job diario ligero (sin football-data ni re-entrenamiento)."""
+    return plan_weekly_steps(include_ingest=False, include_training=False)
+
+
+def daily_pipeline_config(**overrides: object) -> WeeklyPipelineConfig:
+    """Config del job diario: ESPN + Elo/features + evaluar + congelar futuras.
+
+    Se apoya en el campeon ya promovido por el semanal; no re-entrena ni baja
+    los CSV de football-data (ESPN cubre la temporada en curso).
+    """
+    base: dict[str, object] = {
+        "include_ingest": False,
+        "include_espn_ingest": True,
+        "include_training": False,
+        "include_future": True,
+    }
+    base.update(overrides)
+    return WeeklyPipelineConfig(**base)  # type: ignore[arg-type]
 
 
 def run_weekly_pipeline(
@@ -127,6 +179,7 @@ def run_weekly_pipeline(
     cfg = config or WeeklyPipelineConfig()
     timestamp = now if now is not None else datetime.now(UTC)
     divisions = list(cfg.divisions)
+    serving = list(cfg.serving_divisions)
     results: list[WeeklyStepResult] = []
     prefix = "[dry-run]" if dry_run else "[run]"
 
@@ -152,20 +205,29 @@ def run_weekly_pipeline(
             lambda: _ingest_results(session, cfg, divisions, dry_run),
             fatal=False,
         )
-    step("rebuild_elo", lambda: _rebuild_elo(session, cfg, divisions, timestamp, dry_run))
-    step("rebuild_features", lambda: _rebuild_features(session, cfg, divisions, dry_run))
-    step("walk_forward_metrics", lambda: _walk_forward_metrics(session, cfg, divisions, dry_run))
-    step(
-        "freeze_walk_forward_predictions",
-        lambda: _freeze_walk_forward_predictions(session, cfg, divisions, dry_run),
-    )
+    if cfg.include_espn_ingest:
+        # ESPN cubre la temporada en curso (Europa + Peru) que football-data
+        # aun no publica. Tambien best-effort.
+        step("ingest_espn", lambda: _ingest_espn(session, cfg, dry_run), fatal=False)
+    step("rebuild_elo", lambda: _rebuild_elo(session, cfg, serving, timestamp, dry_run))
+    step("rebuild_features", lambda: _rebuild_features(session, cfg, serving, dry_run))
+    if cfg.include_training:
+        step(
+            "walk_forward_metrics",
+            lambda: _walk_forward_metrics(session, cfg, divisions, dry_run),
+        )
+        step(
+            "freeze_walk_forward_predictions",
+            lambda: _freeze_walk_forward_predictions(session, cfg, divisions, dry_run),
+        )
     step("evaluate_predictions", lambda: _evaluate_predictions(session, dry_run))
-    step("build_calibration_bins", lambda: _build_calibration_bins(session, dry_run))
-    step("promote_champion", lambda: _promote_champion(session, cfg, dry_run))
+    if cfg.include_training:
+        step("build_calibration_bins", lambda: _build_calibration_bins(session, dry_run))
+        step("promote_champion", lambda: _promote_champion(session, cfg, dry_run))
     if cfg.include_future:
         step(
             "freeze_future_predictions",
-            lambda: _freeze_future_predictions(session, cfg, divisions, timestamp, dry_run),
+            lambda: _freeze_future_predictions(session, cfg, serving, timestamp, dry_run),
         )
 
     if dry_run:
@@ -238,6 +300,42 @@ def _ingest_weekly_fixtures(
         return f"fixtures={len(fixtures)}"
     summary = load_normalized_batch(session, build_normalized_fixture_batch(fixtures))
     return f"fixtures={summary.matches}"
+
+
+def _ingest_espn(
+    session: Session,
+    cfg: WeeklyPipelineConfig,
+    dry_run: bool,
+) -> str:
+    # Refresca la temporada en curso desde ESPN: vuelca partidos jugados a
+    # "finished" con su marcador y agrega los fixtures nuevos. Idempotente.
+    parts: list[str] = []
+
+    try:
+        europe = load_all_espn_europe(
+            session,
+            season_start_year=cfg.espn_season_start_year,
+            divisions=cfg.espn_europe_divisions,
+            commit=not dry_run,
+        )
+        loaded = sum(item.loaded for item in europe)
+        finished = sum(item.finished for item in europe)
+        parts.append(f"europe_loaded={loaded} europe_finished={finished}")
+    except (httpx.HTTPError, ValueError, OSError) as exc:
+        parts.append(f"europe=skipped({exc.__class__.__name__})")
+
+    if cfg.include_peru_ingest:
+        try:
+            peru_matches = fetch_espn_peru_season(cfg.peru_year)
+            if dry_run:
+                parts.append(f"peru_fetched={len(peru_matches)}")
+            else:
+                peru = load_peru_matches(session, peru_matches, commit=True)
+                parts.append(f"peru_loaded={peru.matches} peru_finished={peru.finished}")
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            parts.append(f"peru=skipped({exc.__class__.__name__})")
+
+    return " ".join(parts)
 
 
 def _rebuild_elo(
