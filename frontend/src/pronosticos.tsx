@@ -299,9 +299,9 @@ function Modelos() {
       {error && <div className="pro-state">No se pudo cargar: {error}</div>}
       <div className="pro-models" style={{ marginTop: 14 }}>
         {rows.map((m, i) => (
-          <div key={m.model} className={`pro-mrow ${i === 0 ? "top" : ""}`}>
+          <div key={m.model} className={`pro-mrow ${m.is_champion ? "top" : ""}`}>
             <div className="rank">{i + 1}</div>
-            <div className="name">{m.model}{m.model === "market_avg_odds" && <span className="pro-tagm"> mercado</span>}<small>{m.algorithm}</small></div>
+            <div className="name">{m.model}{m.is_champion && <span className="pro-tagc"> 👑 campeón</span>}{m.model === "market_avg_odds" && <span className="pro-tagm"> mercado</span>}<small>{m.algorithm}</small></div>
             <div className="metric"><b>{m.weighted_rps.toFixed(4)}</b><span>RPS</span></div>
             <div className="metric"><b>{m.weighted_accuracy === null || m.weighted_accuracy === undefined ? "—" : `${(m.weighted_accuracy * 100).toFixed(1)}%`}</b><span>acierto</span></div>
           </div>

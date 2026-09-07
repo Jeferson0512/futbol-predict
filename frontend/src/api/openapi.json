@@ -1634,6 +1634,11 @@
               }
             ],
             "title": "Weighted Calibration Error"
+          },
+          "is_champion": {
+            "type": "boolean",
+            "title": "Is Champion",
+            "default": false
           }
         },
         "type": "object",

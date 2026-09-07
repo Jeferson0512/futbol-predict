@@ -622,6 +622,7 @@ def _model_ranking_response(row: dict[str, object]) -> ModelRankingRowResponse:
         weighted_brier=_optional_float(row["weighted_brier"]),
         weighted_accuracy=_optional_float(row["weighted_accuracy"]),
         weighted_calibration_error=_optional_float(row["weighted_calibration_error"]),
+        is_champion=bool(row.get("is_champion")),
     )
 
 

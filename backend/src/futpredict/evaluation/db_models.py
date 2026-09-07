@@ -54,8 +54,24 @@ def model_ranking_rows(
         statement = statement.join(League, League.id == ModelVersion.league_id).where(
             League.code.in_(league_codes)
         )
-    rows = session.execute(statement).mappings()
-    return [dict(row) for row in rows]
+    rows = [dict(row) for row in session.execute(statement).mappings()]
+    # El campeon (is_champion) suele estar marcado en la version mas reciente,
+    # que puede no tener metricas (no aparece en el JOIN de arriba). Por eso se
+    # marca por NOMBRE: un modelo es campeon si tiene alguna version campeona en
+    # las ligas filtradas. Con filtro por division (una liga) = campeon por-liga.
+    champion_names = _champion_model_names(session, league_codes)
+    for row in rows:
+        row["is_champion"] = row["model"] in champion_names
+    return rows
+
+
+def _champion_model_names(session: Session, league_codes: Sequence[str]) -> set[str]:
+    statement = select(ModelVersion.name).where(ModelVersion.is_champion.is_(True)).distinct()
+    if league_codes:
+        statement = statement.join(League, League.id == ModelVersion.league_id).where(
+            League.code.in_(league_codes)
+        )
+    return {str(name) for name in session.execute(statement).scalars()}
 
 
 def champion_model_row(
