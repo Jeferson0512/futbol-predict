@@ -99,6 +99,7 @@ class ModelRankingRowResponse(BaseModel):
     weighted_brier: float | None
     weighted_accuracy: float | None
     weighted_calibration_error: float | None
+    is_champion: bool = False
 
 
 class ModelRankingResponse(BaseModel):

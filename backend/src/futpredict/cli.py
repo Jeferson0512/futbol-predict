@@ -2119,16 +2119,18 @@ def _echo_persistence_summary(summary: PersistenceSummary) -> None:
 
 
 def _echo_champion_promotion_summary(summary: ChampionPromotionSummary) -> None:
-    typer.echo("Champion promotion")
-    typer.echo(f"champion_model={summary.champion_model or 'none'}")
-    typer.echo(f"algorithm={summary.algorithm or ''}")
-    typer.echo(f"feature_set_version={summary.feature_set_version or ''}")
-    typer.echo(f"weighted_rps={_optional_metric(summary.weighted_rps)}")
-    typer.echo(f"matches={summary.matches}")
-    typer.echo(f"windows={summary.windows}")
+    typer.echo("Champion promotion (por liga)")
     typer.echo(f"promoted_versions={summary.promoted_versions}")
     typer.echo(f"demoted_versions={summary.demoted_versions}")
     typer.echo(f"champion_versions={summary.champion_versions}")
+    typer.echo("league,model,algorithm,weighted_rps,matches,windows")
+    for champion in summary.champions:
+        typer.echo(
+            f"{champion.league_code},{champion.model},{champion.algorithm},"
+            f"{_optional_metric(champion.weighted_rps)},{champion.matches},{champion.windows}"
+        )
+    if not summary.champions:
+        typer.echo("champion=none")
 
 
 def _echo_future_freeze_summary(summary: FuturePredictionFreezeSummary) -> None:

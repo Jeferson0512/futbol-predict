@@ -148,6 +148,7 @@ export type components = {
       weighted_brier: number | null;
       weighted_accuracy: number | null;
       weighted_calibration_error: number | null;
+      is_champion?: boolean;
     };
     PredictionHistoryResponse: {
       model: string;

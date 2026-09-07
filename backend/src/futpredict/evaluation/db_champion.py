@@ -1,27 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
-from futpredict.db.models import ModelVersion
-from futpredict.evaluation.db_models import champion_model_row
+from futpredict.db.models import League, ModelMetric, ModelVersion
+
+
+@dataclass(frozen=True)
+class LeagueChampion:
+    league_code: str
+    model: str
+    algorithm: str
+    feature_set_version: str
+    weighted_rps: float | None
+    matches: int
+    windows: int
 
 
 @dataclass(frozen=True)
 class ChampionPromotionSummary:
-    champion_model: str | None
-    algorithm: str | None
-    feature_set_version: str | None
-    weighted_rps: float | None
-    matches: int
-    windows: int
-    promoted_versions: int
-    demoted_versions: int
-    champion_versions: int
+    champions: list[LeagueChampion] = field(default_factory=list)
+    promoted_versions: int = 0
+    demoted_versions: int = 0
+
+    @property
+    def champion_versions(self) -> int:
+        return len(self.champions)
 
 
 def promote_champion_by_rps(
@@ -30,41 +38,43 @@ def promote_champion_by_rps(
     min_matches: int = 100,
     commit: bool = True,
 ) -> ChampionPromotionSummary:
-    """Marca como campeon al modelo con menor RPS ponderado y desmarca al resto.
+    """Marca un campeon POR LIGA: el modelo con menor RPS ponderado en esa liga.
 
-    El campeon se elige globalmente por RPS ponderado (nombre, algoritmo,
-    feature_set_version). Como la base impone un unico campeon por liga
-    (indice parcial ``uq_one_champion_per_league``), se marca exactamente una
-    ``model_version`` por liga: la de la ventana de entrenamiento mas reciente
-    de ese modelo. Primero se desmarcan todos los campeones vigentes para no
-    violar el indice durante la transicion.
+    Antes se elegia un unico campeon global (el mejor promediando todas las
+    ligas), lo que dejaba a Peru sin campeon porque su mejor modelo (elo_simple)
+    no era el ganador global (market_avg_odds, que Peru ni tiene). Ahora cada
+    liga promueve a su propio mejor modelo. La base impone un unico campeon por
+    liga (indice parcial ``uq_one_champion_per_league``), asi que se marca una
+    ``model_version`` por liga: la de la ventana de entrenamiento mas reciente.
+    Primero se desmarcan todos los campeones vigentes para no violar el indice.
     """
     demoted = _clear_champions(session)
-    row = champion_model_row(session, min_matches=min_matches)
-    if row is None:
-        if commit:
-            session.commit()
-        return ChampionPromotionSummary(
-            champion_model=None,
-            algorithm=None,
-            feature_set_version=None,
-            weighted_rps=None,
-            matches=0,
-            windows=0,
-            promoted_versions=0,
-            demoted_versions=demoted,
-            champion_versions=0,
-        )
+    best_rows = _best_model_per_league(session, min_matches=min_matches)
 
-    name = str(row["model"])
-    algorithm = str(row["algorithm"])
-    feature_set_version = str(row["feature_set_version"])
-    champion_ids = _latest_version_ids_per_league(
-        session,
-        name=name,
-        algorithm=algorithm,
-        feature_set_version=feature_set_version,
-    )
+    champions: list[LeagueChampion] = []
+    champion_ids: list[int] = []
+    for row in best_rows:
+        version_id = _latest_version_id(
+            session,
+            league_id=_required_int(row["league_id"]),
+            name=str(row["model"]),
+            algorithm=str(row["algorithm"]),
+            feature_set_version=str(row["feature_set_version"]),
+        )
+        if version_id is None:
+            continue
+        champion_ids.append(version_id)
+        champions.append(
+            LeagueChampion(
+                league_code=str(row["league_code"]),
+                model=str(row["model"]),
+                algorithm=str(row["algorithm"]),
+                feature_set_version=str(row["feature_set_version"]),
+                weighted_rps=_optional_float(row.get("weighted_rps")),
+                matches=_required_int(row.get("matches")),
+                windows=_required_int(row.get("windows")),
+            )
+        )
 
     promoted = 0
     if champion_ids:
@@ -81,15 +91,9 @@ def promote_champion_by_rps(
         session.commit()
 
     return ChampionPromotionSummary(
-        champion_model=name,
-        algorithm=algorithm,
-        feature_set_version=feature_set_version,
-        weighted_rps=_optional_float(row.get("weighted_rps")),
-        matches=_required_int(row.get("matches")),
-        windows=_required_int(row.get("windows")),
+        champions=champions,
         promoted_versions=int(promoted),
         demoted_versions=demoted,
-        champion_versions=len(champion_ids),
     )
 
 
@@ -115,6 +119,74 @@ def champion_status_rows(session: Session) -> list[dict[str, object]]:
     return [dict(row) for row in rows]
 
 
+def _best_model_per_league(
+    session: Session,
+    *,
+    min_matches: int,
+) -> list[dict[str, object]]:
+    """El mejor modelo (menor RPS ponderado) de cada liga con >= min_matches."""
+    match_weight = func.sum(ModelMetric.n_matches)
+    weighted_rps = func.sum(ModelMetric.rps * ModelMetric.n_matches) / match_weight
+    aggregated = (
+        select(
+            ModelVersion.league_id.label("league_id"),
+            League.code.label("league_code"),
+            ModelVersion.name.label("model"),
+            ModelVersion.algorithm.label("algorithm"),
+            ModelVersion.feature_set_version.label("feature_set_version"),
+            weighted_rps.label("weighted_rps"),
+            match_weight.label("matches"),
+            func.count(ModelMetric.id).label("windows"),
+        )
+        .join(ModelVersion, ModelVersion.id == ModelMetric.model_version_id)
+        .join(League, League.id == ModelVersion.league_id)
+        .group_by(
+            ModelVersion.league_id,
+            League.code,
+            ModelVersion.name,
+            ModelVersion.algorithm,
+            ModelVersion.feature_set_version,
+        )
+        .having(match_weight >= min_matches)
+        .subquery()
+    )
+    rank = (
+        func.row_number()
+        .over(partition_by=aggregated.c.league_id, order_by=aggregated.c.weighted_rps.asc())
+        .label("rank")
+    )
+    ranked = select(aggregated, rank).subquery()
+    statement = (
+        select(ranked)
+        .where(ranked.c.rank == 1)
+        .order_by(ranked.c.league_code)
+    )
+    return [dict(row) for row in session.execute(statement).mappings()]
+
+
+def _latest_version_id(
+    session: Session,
+    *,
+    league_id: int,
+    name: str,
+    algorithm: str,
+    feature_set_version: str,
+) -> int | None:
+    statement = (
+        select(ModelVersion.id)
+        .where(
+            ModelVersion.league_id == league_id,
+            ModelVersion.name == name,
+            ModelVersion.algorithm == algorithm,
+            ModelVersion.feature_set_version == feature_set_version,
+        )
+        .order_by(ModelVersion.train_window_end.desc(), ModelVersion.id.desc())
+        .limit(1)
+    )
+    value = session.execute(statement).scalars().first()
+    return None if value is None else int(value)
+
+
 def _clear_champions(session: Session) -> int:
     return cast(
         "CursorResult[Any]",
@@ -124,30 +196,6 @@ def _clear_champions(session: Session) -> int:
             .values(is_champion=False)
         ),
     ).rowcount
-
-
-def _latest_version_ids_per_league(
-    session: Session,
-    *,
-    name: str,
-    algorithm: str,
-    feature_set_version: str,
-) -> list[int]:
-    statement = (
-        select(ModelVersion.id)
-        .where(
-            ModelVersion.name == name,
-            ModelVersion.algorithm == algorithm,
-            ModelVersion.feature_set_version == feature_set_version,
-        )
-        .distinct(ModelVersion.league_id)
-        .order_by(
-            ModelVersion.league_id,
-            ModelVersion.train_window_end.desc(),
-            ModelVersion.id.desc(),
-        )
-    )
-    return [int(value) for value in session.execute(statement).scalars().all()]
 
 
 def _optional_float(value: object) -> float | None:

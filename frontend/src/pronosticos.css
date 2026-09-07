@@ -101,6 +101,8 @@
 .pro-mrow .metric span { display: block; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .pro-tagm { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--brand);
   background: color-mix(in srgb, var(--brand) 14%, var(--surface)); padding: 3px 7px; border-radius: 999px; }
+.pro-tagc { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9a6a00;
+  background: color-mix(in srgb, #f5b301 22%, var(--surface)); padding: 3px 7px; border-radius: 999px; }
 
 .pro-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
 .pro-calib { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }

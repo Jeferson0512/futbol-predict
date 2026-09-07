@@ -545,12 +545,12 @@ def _promote_champion(session: Session, cfg: WeeklyPipelineConfig, dry_run: bool
         min_matches=cfg.champion_min_matches,
         commit=not dry_run,
     )
-    if summary.champion_model is None:
-        return "champion=none"
-    rps = f"{summary.weighted_rps:.6f}" if summary.weighted_rps is not None else "n/a"
+    if not summary.champions:
+        return "champions=none"
+    detail = " ".join(f"{c.league_code}:{c.model}" for c in summary.champions)
     return (
-        f"champion={summary.champion_model} rps={rps} "
-        f"promoted={summary.promoted_versions} demoted={summary.demoted_versions}"
+        f"champions={len(summary.champions)} promoted={summary.promoted_versions} "
+        f"demoted={summary.demoted_versions} [{detail}]"
     )
 
 
