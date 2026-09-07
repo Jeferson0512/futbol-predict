@@ -17,6 +17,35 @@ from futpredict.data.db_matches import league_codes_from_divisions
 from futpredict.db.models import League, Match, ModelVersion, Prediction, Team
 
 
+def _latest_prediction_ids(
+    *,
+    model_name: str,
+    division_codes: Sequence[str] | None,
+    status: str,
+) -> Select[Any]:
+    """IDs de la prediccion mas reciente por partido para un modelo.
+
+    Un mismo partido puede tener varias predicciones del mismo modelo (una por
+    ventana de entrenamiento congelada en distintos momentos). Para mostrar/contar
+    nos quedamos con una sola: la de la ``model_version`` con la ventana de
+    entrenamiento mas reciente (``DISTINCT ON (match_id)``).
+    """
+    statement = (
+        select(Prediction.id)
+        .join(ModelVersion, ModelVersion.id == Prediction.model_version_id)
+        .join(Match, Match.id == Prediction.match_id)
+        .join(League, League.id == Match.league_id)
+        .where(ModelVersion.name == model_name)
+        .distinct(Match.id)
+        .order_by(
+            Match.id,
+            ModelVersion.train_window_end.desc(),
+            Prediction.id.desc(),
+        )
+    )
+    return _apply_filters(statement, division_codes=division_codes, status=status)
+
+
 def prediction_history_rows(
     session: Session,
     *,
@@ -27,6 +56,9 @@ def prediction_history_rows(
 ) -> list[dict[str, object]]:
     home_team = aliased(Team)
     away_team = aliased(Team)
+    latest_ids = _latest_prediction_ids(
+        model_name=model_name, division_codes=division_codes, status=status
+    )
     statement = (
         select(
             Match.id,
@@ -49,11 +81,10 @@ def prediction_history_rows(
         .join(League, League.id == Match.league_id)
         .join(home_team, home_team.id == Match.home_team_id)
         .join(away_team, away_team.id == Match.away_team_id)
-        .where(ModelVersion.name == model_name)
+        .where(Prediction.id.in_(latest_ids))
         .order_by(Match.kickoff_utc.desc(), Match.id.desc())
         .limit(limit)
     )
-    statement = _apply_filters(statement, division_codes=division_codes, status=status)
 
     rows: list[dict[str, object]] = []
     for row in session.execute(statement):
@@ -112,19 +143,15 @@ def prediction_history_summary(
         else_="D",
     )
     hit_expr = case((predicted == Prediction.actual_outcome, 1), else_=0)
-    statement = (
-        select(
-            func.count(Prediction.id).label("total"),
-            func.count(Prediction.rps).label("evaluated"),
-            func.coalesce(func.sum(hit_expr), 0).label("hits"),
-            func.avg(Prediction.rps).label("avg_rps"),
-        )
-        .join(ModelVersion, ModelVersion.id == Prediction.model_version_id)
-        .join(Match, Match.id == Prediction.match_id)
-        .join(League, League.id == Match.league_id)
-        .where(ModelVersion.name == model_name)
+    latest_ids = _latest_prediction_ids(
+        model_name=model_name, division_codes=division_codes, status="all"
     )
-    statement = _apply_filters(statement, division_codes=division_codes, status="all")
+    statement = select(
+        func.count(Prediction.id).label("total"),
+        func.count(Prediction.rps).label("evaluated"),
+        func.coalesce(func.sum(hit_expr), 0).label("hits"),
+        func.avg(Prediction.rps).label("avg_rps"),
+    ).where(Prediction.id.in_(latest_ids))
     row = session.execute(statement).one()
     total = int(row[0] or 0)
     evaluated = int(row[1] or 0)
