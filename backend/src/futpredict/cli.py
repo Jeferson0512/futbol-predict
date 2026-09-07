@@ -10,6 +10,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from futpredict.data.db_espn_europe import EspnEuropeLoadSummary, load_all_espn_europe
+from futpredict.data.db_espn_league import (
+    ESPN_LEAGUES,
+    load_espn_league_matches,
+)
 from futpredict.data.db_matches import (
     league_codes_from_divisions,
     load_match_results_from_db,
@@ -96,6 +100,7 @@ from futpredict.ingest.providers.espn_peru import (
     PERU_DIVISION,
     EspnPeruMatch,
     fetch_espn_peru_season,
+    fetch_espn_season,
 )
 from futpredict.ingest.providers.football_data_uk import (
     download_csv,
@@ -412,6 +417,107 @@ def peru_walk_forward_db(
         raise typer.Exit(1)
     seasons = sorted({match.season for match in matches})
     typer.echo(f"peru_seasons={','.join(seasons)} matches={len(matches)}")
+
+    try:
+        metrics = run_expanding_walk_forward(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+        predictions = run_expanding_walk_forward_predictions(
+            matches,
+            start_season=seasons[0],
+            end_season=seasons[-1],
+            initial_train_seasons=initial_train_seasons,
+            seasons=seasons,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    _echo_walk_forward_summary(metrics)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+        return
+
+    _persist_walk_forward_metrics(metrics)
+    _persist_walk_forward_predictions(predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
+@app.command("load-espn-league-db")
+def load_espn_league_db(
+    league: str = typer.Option(..., help=f"Liga ESPN: {', '.join(ESPN_LEAGUES)}."),
+    start_year: int = typer.Option(2021, help="Ano inicial (temporada por ano calendario)."),
+    end_year: int = typer.Option(2026, help="Ano final."),
+    dry_run: bool = typer.Option(False, help="Descargar sin escribir en PostgreSQL."),
+) -> None:
+    from futpredict.core.config import settings
+    from futpredict.db.session import SessionLocal
+
+    config = ESPN_LEAGUES.get(league.lower())
+    if config is None:
+        typer.echo(f"liga desconocida: {league}. Opciones: {', '.join(ESPN_LEAGUES)}", err=True)
+        raise typer.Exit(1)
+
+    all_matches: list[EspnPeruMatch] = []
+    for year in range(start_year, end_year + 1):
+        try:
+            all_matches.extend(fetch_espn_season(config.slug, year, season=str(year)))
+        except httpx.HTTPError as exc:
+            typer.echo(f"{league} {year} fetch failed: {exc.__class__.__name__}", err=True)
+    typer.echo(f"fetched_matches={len(all_matches)}")
+    if not all_matches:
+        typer.echo(f"No se descargaron partidos de {league}.", err=True)
+        raise typer.Exit(1)
+    if dry_run:
+        typer.echo("Dry run: no database writes executed.")
+        return
+
+    try:
+        with SessionLocal() as session:
+            summary = load_espn_league_matches(session, config, all_matches)
+    except SQLAlchemyError as exc:
+        _echo_database_error(settings.database_url, exc)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"league={summary.league_code}")
+    typer.echo(f"seasons={summary.seasons}")
+    typer.echo(f"teams={summary.teams}")
+    typer.echo(f"matches={summary.matches}")
+    typer.echo(f"finished={summary.finished}")
+    typer.echo(f"scheduled={summary.scheduled}")
+
+
+@app.command("espn-league-walk-forward-db")
+def espn_league_walk_forward_db(
+    league: str = typer.Option(..., help=f"Liga ESPN: {', '.join(ESPN_LEAGUES)}."),
+    initial_train_seasons: int = typer.Option(
+        2,
+        min=1,
+        help="Temporadas iniciales de entrenamiento.",
+    ),
+    dry_run: bool = typer.Option(False, help="Calcular sin escribir en PostgreSQL."),
+) -> None:
+    config = ESPN_LEAGUES.get(league.lower())
+    if config is None:
+        typer.echo(f"liga desconocida: {league}. Opciones: {', '.join(ESPN_LEAGUES)}", err=True)
+        raise typer.Exit(1)
+
+    matches = _load_db_match_results(
+        start_season="2021",
+        end_season="2627",
+        divisions=[config.division],
+    )
+    if not matches:
+        typer.echo(
+            f"No hay partidos de {league} cargados. Corre load-espn-league-db.", err=True
+        )
+        raise typer.Exit(1)
+    seasons = sorted({match.season for match in matches})
+    typer.echo(f"{config.league_code}_seasons={','.join(seasons)} matches={len(matches)}")
 
     try:
         metrics = run_expanding_walk_forward(

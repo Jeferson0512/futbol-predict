@@ -15,7 +15,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const HISTORY_MODEL = "market_avg_odds";
 
 const LEAGUES: ReadonlyArray<readonly [string, string]> = [
-  ["PER1", "Liga 1 Perú"],
+  ["PER1", "Liga 1 Perú"], ["BRA1", "Brasileirão"], ["ARG1", "Liga Argentina"],
   ["E0", "Premier League"], ["SP1", "LaLiga"], ["I1", "Serie A"],
   ["D1", "Bundesliga"], ["F1", "Ligue 1"],
 ];

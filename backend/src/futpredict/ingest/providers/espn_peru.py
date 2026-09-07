@@ -30,6 +30,8 @@ ESPN_DIVISION_SLUGS: dict[str, str] = {
     "D1": "ger.1",
     "F1": "fra.1",
     "PER1": "per.1",
+    "BRA1": "bra.1",
+    "ARG1": "arg.1",
 }
 
 _ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
