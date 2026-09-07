@@ -10,6 +10,7 @@ from futpredict.jobs import weekly
 _ALL_STEP_HELPERS = (
     "_ingest_results",
     "_ingest_espn",
+    "_ingest_xg",
     "_rebuild_elo",
     "_rebuild_features",
     "_walk_forward_metrics",
@@ -25,6 +26,7 @@ def test_plan_weekly_steps_order_with_ingest_and_future() -> None:
     assert weekly.plan_weekly_steps() == [
         "ingest_results",
         "ingest_espn",
+        "ingest_xg",
         "rebuild_elo",
         "rebuild_features",
         "walk_forward_metrics",
@@ -40,10 +42,12 @@ def test_plan_weekly_steps_can_skip_ingest_and_future() -> None:
     steps = weekly.plan_weekly_steps(
         include_ingest=False,
         include_espn_ingest=False,
+        include_xg_ingest=False,
         include_future=False,
     )
     assert "ingest_results" not in steps
     assert "ingest_espn" not in steps
+    assert "ingest_xg" not in steps
     assert "freeze_future_predictions" not in steps
     assert steps[0] == "rebuild_elo"
     assert steps[-1] == "promote_champion"
@@ -59,8 +63,8 @@ def test_plan_daily_steps_is_light() -> None:
         "evaluate_predictions",
         "freeze_future_predictions",
     ]
-    for training_step in ("walk_forward_metrics", "build_calibration_bins", "promote_champion"):
-        assert training_step not in steps
+    for skip in ("walk_forward_metrics", "build_calibration_bins", "promote_champion", "ingest_xg"):
+        assert skip not in steps
 
 
 def test_daily_pipeline_config_disables_training() -> None:
@@ -68,6 +72,7 @@ def test_daily_pipeline_config_disables_training() -> None:
     assert cfg.include_training is False
     assert cfg.include_ingest is False
     assert cfg.include_espn_ingest is True
+    assert cfg.include_xg_ingest is False
     assert cfg.include_future is True
 
 
