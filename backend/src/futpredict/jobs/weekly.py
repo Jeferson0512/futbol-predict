@@ -9,8 +9,9 @@ import httpx
 from sqlalchemy.orm import Session
 
 from futpredict.data.db_espn_europe import load_all_espn_europe
-from futpredict.data.db_matches import load_match_results_from_db
+from futpredict.data.db_matches import league_codes_from_divisions, load_match_results_from_db
 from futpredict.data.db_peru import load_peru_matches
+from futpredict.data.db_understat import store_understat_xg
 from futpredict.data.football_data_uk_catalog import (
     DEFAULT_BIG_FIVE_END_SEASON,
     DEFAULT_BIG_FIVE_START_SEASON,
@@ -28,7 +29,10 @@ from futpredict.evaluation.db_predictions import (
     freeze_walk_forward_predictions,
 )
 from futpredict.evaluation.db_walk_forward import upsert_walk_forward_metrics
-from futpredict.evaluation.ml_walk_forward import run_configured_ml_walk_forward
+from futpredict.evaluation.ml_walk_forward import (
+    ml_models_for_keys,
+    run_configured_ml_walk_forward,
+)
 from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
     run_expanding_walk_forward,
@@ -41,7 +45,11 @@ from futpredict.features.db_features import (
     load_feature_payloads_from_db,
     upsert_feature_snapshots,
 )
-from futpredict.features.rolling import FEATURE_SET_VERSION, build_rolling_feature_snapshots
+from futpredict.features.rolling import (
+    FEATURE_SET_VERSION,
+    FEATURE_SET_VERSION_V2,
+    build_rolling_feature_snapshots,
+)
 from futpredict.ingest.normalized import (
     build_normalized_batch,
     build_normalized_fixture_batch,
@@ -56,11 +64,13 @@ from futpredict.ingest.providers.football_data_uk import (
     load_matches,
     load_weekly_fixtures,
 )
+from futpredict.ingest.providers.understat import fetch_understat_xg
 from futpredict.models.persisted_elo import (
     build_elo_rating_snapshots,
     load_elo_matches_from_db,
     upsert_elo_rating_snapshots,
 )
+from futpredict.models.tabular import FEATURE_KEYS_V2
 
 Logger = Callable[[str], None]
 
@@ -89,12 +99,18 @@ class WeeklyPipelineConfig:
     include_ingest: bool = True
     include_espn_ingest: bool = True
     include_peru_ingest: bool = True
+    include_xg_ingest: bool = True
     include_training: bool = True
     include_future: bool = True
     ingest_season: str = field(default_factory=current_season_code)
     espn_season_start_year: int = field(default_factory=current_europe_season_start_year)
     peru_year: int = field(default_factory=lambda: datetime.now(UTC).year)
     espn_europe_divisions: tuple[str, ...] = ("E0", "SP1", "I1", "D1", "F1")
+    # Temporadas cuyo xG se refresca desde Understat. El historico es estatico
+    # (se carga una vez con load-understat-xg-big-five); el semanal mantiene solo
+    # la temporada en curso.
+    xg_seasons: tuple[str, ...] = field(default_factory=lambda: (current_season_code(),))
+    xg_cache_dir: Path = Path("data/raw/understat")
     cache_dir: Path = Path("data/raw/football-data-uk")
     # Divisiones de entrenamiento (football-data: cuotas/xG). Solo Big-5.
     divisions: tuple[str, ...] = field(default_factory=lambda: tuple(big_five_division_codes()))
@@ -116,21 +132,24 @@ def plan_weekly_steps(
     *,
     include_ingest: bool = True,
     include_espn_ingest: bool = True,
+    include_xg_ingest: bool = True,
     include_training: bool = True,
     include_future: bool = True,
 ) -> list[str]:
     """Orden canonico de pasos del pipeline.
 
     El job **semanal** corre todo (``include_training=True``): re-entrena
-    walk-forward, recalibra y promueve campeon. El job **diario** es ligero
-    (``include_training=False``): solo refresca resultados, Elo/features y
-    evalua/congela, sin re-entrenar.
+    walk-forward (con xG), recalibra y promueve campeon. El job **diario** es
+    ligero (``include_training=False``): solo refresca resultados, Elo/features y
+    evalua/congela, sin re-entrenar ni raspar xG de Understat.
     """
     steps: list[str] = []
     if include_ingest:
         steps.append("ingest_results")
     if include_espn_ingest:
         steps.append("ingest_espn")
+    if include_xg_ingest:
+        steps.append("ingest_xg")
     steps += ["rebuild_elo", "rebuild_features"]
     if include_training:
         steps += ["walk_forward_metrics", "freeze_walk_forward_predictions"]
@@ -143,19 +162,25 @@ def plan_weekly_steps(
 
 
 def plan_daily_steps() -> list[str]:
-    """Pasos del job diario ligero (sin football-data ni re-entrenamiento)."""
-    return plan_weekly_steps(include_ingest=False, include_training=False)
+    """Pasos del job diario ligero (sin football-data, xG ni re-entrenamiento)."""
+    return plan_weekly_steps(
+        include_ingest=False,
+        include_xg_ingest=False,
+        include_training=False,
+    )
 
 
 def daily_pipeline_config(**overrides: object) -> WeeklyPipelineConfig:
     """Config del job diario: ESPN + Elo/features + evaluar + congelar futuras.
 
-    Se apoya en el campeon ya promovido por el semanal; no re-entrena ni baja
-    los CSV de football-data (ESPN cubre la temporada en curso).
+    Se apoya en el campeon ya promovido por el semanal; no re-entrena, no baja
+    los CSV de football-data ni raspa xG (ESPN cubre la temporada en curso; el
+    xG lo refresca el semanal).
     """
     base: dict[str, object] = {
         "include_ingest": False,
         "include_espn_ingest": True,
+        "include_xg_ingest": False,
         "include_training": False,
         "include_future": True,
     }
@@ -209,6 +234,9 @@ def run_weekly_pipeline(
         # ESPN cubre la temporada en curso (Europa + Peru) que football-data
         # aun no publica. Tambien best-effort.
         step("ingest_espn", lambda: _ingest_espn(session, cfg, dry_run), fatal=False)
+    if cfg.include_xg_ingest:
+        # xG de Understat para la temporada en curso (scraping best-effort).
+        step("ingest_xg", lambda: _ingest_xg(session, cfg, divisions, dry_run), fatal=False)
     step("rebuild_elo", lambda: _rebuild_elo(session, cfg, serving, timestamp, dry_run))
     step("rebuild_features", lambda: _rebuild_features(session, cfg, serving, dry_run))
     if cfg.include_training:
@@ -338,6 +366,45 @@ def _ingest_espn(
     return " ".join(parts)
 
 
+def _ingest_xg(
+    session: Session,
+    cfg: WeeklyPipelineConfig,
+    divisions: list[str],
+    dry_run: bool,
+) -> str:
+    # Refresca xG de Understat para las temporadas en curso (Big-5). El historico
+    # es estatico y se carga una vez; aqui solo se mantiene lo nuevo. Empareja por
+    # (temporada, equipos normalizados) y escribe home_xg/away_xg. Best-effort:
+    # si Understat falla para una liga/temporada, se salta esa y sigue.
+    updated = 0
+    skipped = 0
+    for division in divisions:
+        league_code = league_codes_from_divisions([division])[0]
+        for season in cfg.xg_seasons:
+            our_matches = load_match_results_from_db(
+                session,
+                start_season=season,
+                end_season=season,
+                division_codes=[division],
+            )
+            if not our_matches:
+                continue
+            try:
+                understat_matches = fetch_understat_xg(
+                    league_code=league_code,
+                    season=season,
+                    cache_dir=cfg.xg_cache_dir,
+                )
+            except Exception:  # noqa: BLE001 - red/scraping de Understat, best-effort
+                skipped += 1
+                continue
+            summary = store_understat_xg(
+                session, understat_matches, our_matches, commit=not dry_run
+            )
+            updated += summary.updated
+    return f"seasons={list(cfg.xg_seasons)} xg_updated={updated} skipped_fetches={skipped}"
+
+
 def _rebuild_elo(
     session: Session,
     cfg: WeeklyPipelineConfig,
@@ -369,10 +436,22 @@ def _rebuild_features(
         end_season=cfg.end_season,
         division_codes=divisions,
     )
-    snapshots = build_rolling_feature_snapshots(feature_matches)
+    # V1 (base) para compatibilidad y V2 (con xG) que consume el ML del semanal y
+    # el detalle de partido (/matches/{id}). Cada match tiene su xG (o None) ya en
+    # la tabla, asi que V2 lo aprovecha donde exista.
+    snapshots_v1 = build_rolling_feature_snapshots(
+        feature_matches,
+        feature_set_version=FEATURE_SET_VERSION,
+    )
+    snapshots_v2 = build_rolling_feature_snapshots(
+        feature_matches,
+        feature_set_version=FEATURE_SET_VERSION_V2,
+        include_xg=True,
+    )
     if not dry_run:
-        upsert_feature_snapshots(session, snapshots)
-    return f"matches={len(feature_matches)} features={len(snapshots)}"
+        upsert_feature_snapshots(session, snapshots_v1)
+        upsert_feature_snapshots(session, snapshots_v2)
+    return f"matches={len(feature_matches)} v1={len(snapshots_v1)} v2={len(snapshots_v2)}"
 
 
 def _walk_forward_metrics(
@@ -393,9 +472,11 @@ def _walk_forward_metrics(
         end_season=cfg.end_season,
         initial_train_seasons=cfg.initial_train_seasons,
     )
+    # ML entrena sobre V2 (rolling_v1 + xG); el imputer de la logistica y el
+    # soporte NaN-nativo del boosting cubren los partidos sin xG.
     payloads = load_feature_payloads_from_db(
         session,
-        feature_set_version=FEATURE_SET_VERSION,
+        feature_set_version=FEATURE_SET_VERSION_V2,
         start_season=cfg.start_season,
         end_season=cfg.end_season,
         division_codes=divisions,
@@ -406,6 +487,7 @@ def _walk_forward_metrics(
         start_season=cfg.start_season,
         end_season=cfg.end_season,
         initial_train_seasons=cfg.initial_train_seasons,
+        models=ml_models_for_keys(FEATURE_KEYS_V2),
     )
     metrics = [*metrics, *ml_metrics]
     if not dry_run:

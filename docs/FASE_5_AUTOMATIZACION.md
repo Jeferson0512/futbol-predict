@@ -74,11 +74,19 @@ El ciclo se parte en dos jobs para no re-entrenar todos los dias:
 | Job | CLI | Script | Task Scheduler | Que hace |
 |-----|-----|--------|----------------|----------|
 | **Diario** (ligero) | `run-daily` | `scripts/run-daily.ps1` | `FutbolPredict-Daily`, todos los dias 07:00 | Refresca resultados/fixtures desde **ESPN** (Europa + Peru), reconstruye Elo/features, **evalua** las predicciones ya congeladas contra los resultados que fueron saliendo y **congela** la proxima jornada. No re-entrena ni baja football-data. Se apoya en el campeon del ultimo semanal. |
-| **Semanal** (pesado) | `run-weekly` | `scripts/run-weekly.ps1` | `FutbolPredict-Weekly`, lunes 08:00 | Todo lo anterior **mas** re-entrenar walk-forward, recalibrar y promover campeon. Ademas baja los CSV de football-data. |
+| **Semanal** (pesado) | `run-weekly` | `scripts/run-weekly.ps1` | `FutbolPredict-Weekly`, lunes 08:00 | Todo lo anterior **mas** refrescar **xG** de Understat de la temporada en curso (`ingest_xg`), re-entrenar walk-forward **con xG** (features V2), recalibrar y promover campeon. Ademas baja los CSV de football-data. |
 
 El diario cubre lo que football-data publica con retraso: ESPN ya trae la
 temporada en curso (`ingest_espn`), asi que "partidos que faltan" -> "jugados"
 se actualiza cada dia de forma idempotente (upsert por identidad de fixture).
+
+**xG (Fase 6/8):** el paso `ingest_xg` del semanal raspa Understat solo de la
+temporada en curso (`xg_seasons`, Big-5; el historico es estatico y se carga una
+vez con `load-understat-xg-big-five`). `rebuild_features` construye V1 (base) y
+V2 (rolling_v1 + 4 features de xG); el walk-forward del ML entrena sobre V2. El
+imputer de la logistica y el soporte NaN-nativo del boosting cubren los partidos
+sin xG (p.ej. Peru, o partidos muy recientes que Understat aun no publica). xG
+mejora el ML (~0.213 RPS) pero no vence al mercado (~0.196), que sigue de campeon.
 
 Registro de las tareas (usuario actual, sin elevacion):
 
@@ -89,6 +97,5 @@ schtasks /create /tn "FutbolPredict-Weekly" /sc WEEKLY /d MON /st 08:00 /f `
   /tr "powershell -NoProfile -ExecutionPolicy Bypass -File E:\Trabajos\Propios\futbol-predict\scripts\run-weekly.ps1"
 ```
 
-Pendiente (siguientes prioridades): xG dentro del semanal, calibracion propia de
-Peru, campeon por-liga para Peru (hoy sus futuras se congelan con Elo) y
-Brasil/Argentina.
+Pendiente (siguientes prioridades): calibracion propia de Peru, campeon por-liga
+para Peru (hoy sus futuras se congelan con Elo) y Brasil/Argentina.
