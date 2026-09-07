@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import Table
+from sqlalchemy import Table, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -223,6 +223,7 @@ def _upsert_matches(
             constraint="uq_match_fixture_identity",
             set_={
                 "status": base.excluded.status,
+                "kickoff_utc": base.excluded.kickoff_utc,
                 "home_goals": base.excluded.home_goals,
                 "away_goals": base.excluded.away_goals,
                 "home_ht": base.excluded.home_ht,
@@ -237,8 +238,22 @@ def _upsert_matches(
                 "source": base.excluded.source,
                 "ingested_at": base.excluded.ingested_at,
             },
+            # No pisar un partido con resultado usando un fixture sin marcador.
+            where=or_(base.excluded.home_goals.isnot(None), table.c.home_goals.is_(None)),
         ).returning(table.c.id)
-        match_ids[match.key] = _scalar_int(session.execute(statement).scalar_one())
+        row_id = session.execute(statement).scalar_one_or_none()
+        if row_id is None:
+            # El guard salto (habria degradado un resultado): la fila ya existe,
+            # solo hay que recuperar su id por la clave natural.
+            row_id = session.execute(
+                select(table.c.id).where(
+                    table.c.league_id == league_ids[match.league_code],
+                    table.c.season_id == season_ids[match.season_key],
+                    table.c.home_team_id == team_ids[match.home_team_key],
+                    table.c.away_team_id == team_ids[match.away_team_key],
+                )
+            ).scalar_one()
+        match_ids[match.key] = _scalar_int(row_id)
     return match_ids
 
 

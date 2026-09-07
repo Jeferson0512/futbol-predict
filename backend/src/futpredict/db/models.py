@@ -92,12 +92,15 @@ class Match(Base):
     __tablename__ = "matches"
     __table_args__ = (
         CheckConstraint("home_team_id <> away_team_id", name="ck_match_distinct_teams"),
+        # Identidad natural de un partido de liga: cada enfrentamiento ocurre una
+        # vez por temporada. NO incluye kickoff_utc a proposito: distintas fuentes
+        # (o reprogramaciones) reportan horas ligeramente distintas y eso creaba
+        # duplicados. Un reschedule solo actualiza kickoff_utc de la misma fila.
         UniqueConstraint(
             "league_id",
             "season_id",
             "home_team_id",
             "away_team_id",
-            "kickoff_utc",
             name="uq_match_fixture_identity",
         ),
     )

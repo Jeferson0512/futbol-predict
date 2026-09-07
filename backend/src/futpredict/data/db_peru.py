@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import Table, select
+from sqlalchemy import Table, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -174,9 +174,12 @@ def _upsert_match(
         constraint="uq_match_fixture_identity",
         set_={
             "status": base.excluded.status,
+            "kickoff_utc": base.excluded.kickoff_utc,
             "home_goals": base.excluded.home_goals,
             "away_goals": base.excluded.away_goals,
         },
+        # No pisar un resultado con un fixture sin marcador (ver db_espn_europe).
+        where=or_(base.excluded.home_goals.isnot(None), table.c.home_goals.is_(None)),
     )
     session.execute(statement)
 
