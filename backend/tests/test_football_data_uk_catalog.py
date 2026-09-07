@@ -57,6 +57,14 @@ def test_division_code_for_league_maps_peru() -> None:
     assert division_code_for_league(peru) == "PER1"
 
 
+def test_brazil_argentina_registered_without_polluting_big_five() -> None:
+    for code, league in (("BRA1", "brasileirao"), ("ARG1", "liga-argentina")):
+        assert code in DIVISIONS_BY_CODE
+        assert code not in big_five_division_codes()
+        assert league_codes_from_divisions([code]) == [league]
+        assert division_for_league_code(league) == code
+
+
 def test_season_code_handles_calendar_year_leagues() -> None:
     assert season_code_from_years(2025, 2026) == "2526"  # Big-5 (ago-may)
     assert season_code_from_years(2026, 2026) == "2026"  # Liga 1 Peru (ano calendario)

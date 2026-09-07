@@ -9,6 +9,12 @@ import httpx
 from sqlalchemy.orm import Session
 
 from futpredict.data.db_espn_europe import load_all_espn_europe
+from futpredict.data.db_espn_league import (
+    ARGENTINA,
+    BRAZIL,
+    EspnLeagueConfig,
+    load_espn_league_matches,
+)
 from futpredict.data.db_matches import league_codes_from_divisions, load_match_results_from_db
 from futpredict.data.db_peru import load_peru_matches
 from futpredict.data.db_understat import store_understat_xg
@@ -58,6 +64,7 @@ from futpredict.ingest.persistence import load_normalized_batch
 from futpredict.ingest.providers.espn_peru import (
     PERU_DIVISION,
     fetch_espn_peru_season,
+    fetch_espn_season,
 )
 from futpredict.ingest.providers.football_data_uk import (
     download_many,
@@ -106,6 +113,8 @@ class WeeklyPipelineConfig:
     espn_season_start_year: int = field(default_factory=current_europe_season_start_year)
     peru_year: int = field(default_factory=lambda: datetime.now(UTC).year)
     espn_europe_divisions: tuple[str, ...] = ("E0", "SP1", "I1", "D1", "F1")
+    # Ligas de ESPN por ano calendario (ademas de Peru): Brasil, Argentina.
+    espn_calendar_leagues: tuple[EspnLeagueConfig, ...] = (BRAZIL, ARGENTINA)
     # Temporadas cuyo xG se refresca desde Understat. El historico es estatico
     # (se carga una vez con load-understat-xg-big-five); el semanal mantiene solo
     # la temporada en curso.
@@ -114,10 +123,10 @@ class WeeklyPipelineConfig:
     cache_dir: Path = Path("data/raw/football-data-uk")
     # Divisiones de entrenamiento (football-data: cuotas/xG). Solo Big-5.
     divisions: tuple[str, ...] = field(default_factory=lambda: tuple(big_five_division_codes()))
-    # Divisiones que se sirven al usuario (Elo/features/freeze). Big-5 + Peru;
-    # cada liga mantiene su propia escala, no se contaminan entre si.
+    # Divisiones que se sirven al usuario (Elo/features/freeze). Big-5 + Peru +
+    # Brasil + Argentina; cada liga mantiene su propia escala, no se contaminan.
     serving_divisions: tuple[str, ...] = field(
-        default_factory=lambda: (*big_five_division_codes(), PERU_DIVISION)
+        default_factory=lambda: (*big_five_division_codes(), PERU_DIVISION, "BRA1", "ARG1")
     )
 
 
@@ -362,6 +371,21 @@ def _ingest_espn(
                 parts.append(f"peru_loaded={peru.matches} peru_finished={peru.finished}")
         except (httpx.HTTPError, ValueError, OSError) as exc:
             parts.append(f"peru=skipped({exc.__class__.__name__})")
+
+    year = cfg.peru_year  # mismo ano calendario en curso
+    for league in cfg.espn_calendar_leagues:
+        try:
+            matches = fetch_espn_season(league.slug, year, season=str(year))
+            if dry_run:
+                parts.append(f"{league.division}_fetched={len(matches)}")
+            else:
+                summary = load_espn_league_matches(session, league, matches, commit=True)
+                parts.append(
+                    f"{league.division}_loaded={summary.matches} "
+                    f"{league.division}_finished={summary.finished}"
+                )
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            parts.append(f"{league.division}=skipped({exc.__class__.__name__})")
 
     return " ".join(parts)
 

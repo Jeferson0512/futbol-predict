@@ -20,9 +20,17 @@ BIG_FIVE_DIVISIONS: tuple[Division, ...] = (
     Division(code="F1", league_code="ligue-1", name="Ligue 1", country="France"),
 )
 
-# Ligas fuera de football-data.co.uk (Fase 8). No entran en big_five_division_codes.
+# Ligas fuera de football-data.co.uk (Fase 8/9), vienen de ESPN (ano calendario).
+# No entran en big_five_division_codes.
 EXTRA_DIVISIONS: tuple[Division, ...] = (
     Division(code="PER1", league_code="liga1-peru", name="Liga 1 Peru", country="Peru"),
+    Division(code="BRA1", league_code="brasileirao", name="Brasileirao Serie A", country="Brazil"),
+    Division(
+        code="ARG1",
+        league_code="liga-argentina",
+        name="Liga Profesional Argentina",
+        country="Argentina",
+    ),
 )
 
 ALL_DIVISIONS: tuple[Division, ...] = (*BIG_FIVE_DIVISIONS, *EXTRA_DIVISIONS)
