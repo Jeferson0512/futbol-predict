@@ -4,6 +4,18 @@ Esta carpeta contiene backups versionados de la base principal del proyecto.
 No esta ignorada por Git a proposito, para que otra computadora pueda clonar el
 repositorio y restaurar el estado de trabajo.
 
+## Dos tipos de backup
+
+- `backups/postgres/*.dump` - **dumps de handoff**, versionados en Git a
+  proposito, para que otra computadora clone el repo y restaure el estado.
+  Se crean a mano en hitos del proyecto.
+- `backups/postgres/auto/*.dump` - **dumps automaticos y rotativos** que sacan
+  `run-daily` y `run-weekly` al final de cada corrida, via el comando
+  `futpredict.cli backup-db`. Estan ignorados por Git: se regeneran solos y
+  abultarian el repo varios MB por semana. Se conservan los 14 mas recientes.
+
+Para restaurar, cualquiera de los dos sirve igual: son `pg_dump -Fc`.
+
 ## Backup actual
 
 - Archivo: `futbol_predict_2026-08-27.dump`

@@ -19,6 +19,7 @@ _ALL_STEP_HELPERS = (
     "_build_calibration_bins",
     "_promote_champion",
     "_freeze_future_predictions",
+    "_backup_database",
 )
 
 
@@ -35,6 +36,7 @@ def test_plan_weekly_steps_order_with_ingest_and_future() -> None:
         "build_calibration_bins",
         "promote_champion",
         "freeze_future_predictions",
+        "backup_database",
     ]
 
 
@@ -50,7 +52,7 @@ def test_plan_weekly_steps_can_skip_ingest_and_future() -> None:
     assert "ingest_xg" not in steps
     assert "freeze_future_predictions" not in steps
     assert steps[0] == "rebuild_elo"
-    assert steps[-1] == "promote_champion"
+    assert steps[-1] == "backup_database"
 
 
 def test_plan_daily_steps_is_light() -> None:
@@ -62,6 +64,7 @@ def test_plan_daily_steps_is_light() -> None:
         "rebuild_features",
         "evaluate_predictions",
         "freeze_future_predictions",
+        "backup_database",
     ]
     for skip in ("walk_forward_metrics", "build_calibration_bins", "promote_champion", "ingest_xg"):
         assert skip not in steps
@@ -74,6 +77,34 @@ def test_daily_pipeline_config_disables_training() -> None:
     assert cfg.include_espn_ingest is True
     assert cfg.include_xg_ingest is False
     assert cfg.include_future is True
+    # El diario tambien respalda: congela predicciones que no se pueden rehacer.
+    assert cfg.include_backup is True
+
+
+def test_plan_weekly_steps_can_skip_backup() -> None:
+    steps = weekly.plan_weekly_steps(include_backup=False)
+
+    assert "backup_database" not in steps
+    assert steps[-1] == "freeze_future_predictions"
+
+
+def test_run_weekly_pipeline_continues_when_backup_fails(monkeypatch: Any) -> None:
+    calls: list[str] = []
+    _patch_all_steps(monkeypatch, calls)
+
+    def boom(*_args: Any, **_kwargs: Any) -> str:
+        raise RuntimeError("pg_dump missing")
+
+    monkeypatch.setattr(weekly, "_backup_database", boom)
+    session = types.SimpleNamespace(rollback=lambda: calls.append("rollback"))
+
+    results = weekly.run_weekly_pipeline(session, dry_run=True, logger=lambda _msg: None)  # type: ignore[arg-type]
+
+    by_name = {result.name: result for result in results}
+    # El backup es el ultimo paso y es best-effort: queda registrado como error
+    # pero no invalida el trabajo ya commiteado del pipeline.
+    assert by_name["backup_database"].status == "error"
+    assert by_name["freeze_future_predictions"].status == "dry-run"
 
 
 def _patch_all_steps(monkeypatch: Any, calls: list[str]) -> None:

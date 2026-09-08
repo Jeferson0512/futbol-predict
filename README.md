@@ -270,6 +270,29 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-future-predictions-db --days 14
 ```
 
+### Backup automatico
+
+Cada corrida de `run-daily` y `run-weekly` termina sacando un `pg_dump -Fc` a
+`backups/postgres/auto/` y rotando los mas viejos (por defecto conserva 14).
+Las predicciones congeladas son irreproducibles: la regla del proyecto prohibe
+reescribir una prediccion historica, asi que un `freeze` perdido no se puede
+regenerar sin romper la honestidad del registro.
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db --list
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db --keep 30
+```
+
+Si `pg_dump` no esta en el PATH (tipico en Windows), define `PG_DUMP_PATH` en
+`backend/.env` con la ruta al binario. La carpeta `auto/` esta ignorada por Git;
+el dump de handoff versionado en `backups/postgres/` se sigue creando a mano.
+
+El backup es best-effort: si falla no invalida el trabajo ya commiteado del
+pipeline, pero queda reportado en el resumen final y `run-daily`/`run-weekly`
+terminan con codigo 1 para que Windows Task Scheduler lo muestre.
+
 El campeon se elige por RPS ponderado global y se marca exactamente una
 `model_version` por liga (la de la ventana mas reciente), respetando el indice
 `uq_one_champion_per_league`. Las predicciones futuras solo se congelan para

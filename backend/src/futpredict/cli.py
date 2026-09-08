@@ -117,9 +117,17 @@ from futpredict.ingest.providers.understat import (
     fetch_understat_xg,
     understat_xg_coverage,
 )
+from futpredict.jobs.backup import (
+    DEFAULT_KEEP,
+    BackupError,
+    create_database_backup,
+    default_backup_dir,
+    existing_backups,
+)
 from futpredict.jobs.weekly import (
     WeeklyPipelineConfig,
     WeeklyPipelineError,
+    WeeklyStepResult,
     daily_pipeline_config,
     run_weekly_pipeline,
 )
@@ -1528,6 +1536,28 @@ def freeze_future_predictions_db(
         typer.echo("Dry run: no database writes executed.")
 
 
+def _echo_pipeline_results(results: list[WeeklyStepResult]) -> None:
+    """Imprime el detalle por paso y un resumen que hace visible cualquier fallo.
+
+    Los pasos best-effort (ingesta, backup) no abortan el pipeline, asi que sin
+    este resumen una corrida con ESPN caido terminaba en 0 y nadie se enteraba.
+    """
+    typer.echo("step,status,detail")
+    for result in results:
+        typer.echo(f"{result.name},{result.status},{result.detail}")
+
+    failed = [result for result in results if result.status == "error"]
+    if not failed:
+        typer.echo(f"resumen: {len(results)} pasos, todos correctos.")
+        return
+    names = ", ".join(result.name for result in failed)
+    typer.echo(
+        f"resumen: {len(failed)} de {len(results)} pasos con error ({names}).",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
 @app.command("run-weekly")
 def run_weekly(
     start_season: str = typer.Option(
@@ -1587,9 +1617,7 @@ def run_weekly(
         _echo_database_error(settings.database_url, exc)
         raise typer.Exit(1) from exc
 
-    typer.echo("step,status,detail")
-    for result in results:
-        typer.echo(f"{result.name},{result.status},{result.detail}")
+    _echo_pipeline_results(results)
 
 
 @app.command("run-daily")
@@ -1627,9 +1655,52 @@ def run_daily(
         _echo_database_error(settings.database_url, exc)
         raise typer.Exit(1) from exc
 
-    typer.echo("step,status,detail")
-    for result in results:
-        typer.echo(f"{result.name},{result.status},{result.detail}")
+    _echo_pipeline_results(results)
+
+
+@app.command("backup-db")
+def backup_db(
+    out_dir: Path = typer.Option(
+        None,
+        help="Directorio destino. Por defecto backups/postgres/auto/ en la raiz del repo.",
+    ),
+    keep: int = typer.Option(DEFAULT_KEEP, min=1, help="Cuantos dumps conservar."),
+    list_only: bool = typer.Option(False, "--list", help="Solo listar los backups existentes."),
+) -> None:
+    """Saca un pg_dump -Fc de la base y rota los antiguos.
+
+    Es el mismo paso que corren `run-daily` y `run-weekly` al final; este comando
+    sirve para respaldar a mano o revisar que hay guardado.
+    """
+    from futpredict.core.config import settings
+
+    directory = out_dir if out_dir is not None else default_backup_dir()
+
+    if list_only:
+        found = existing_backups(directory)
+        if not found:
+            typer.echo(f"Sin backups en {directory}.")
+            return
+        typer.echo("archivo,mb")
+        for path in found:
+            typer.echo(f"{path.name},{path.stat().st_size / (1024 * 1024):.1f}")
+        typer.echo(f"total: {len(found)} backups en {directory}")
+        return
+
+    try:
+        result = create_database_backup(
+            settings.database_url,
+            out_dir=directory,
+            keep=keep,
+            pg_dump_path=settings.pg_dump_path,
+        )
+    except BackupError as exc:
+        typer.echo(f"Backup fallido: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Backup creado: {result.path} ({result.size_mb:.1f} MB)")
+    if result.removed:
+        typer.echo(f"Rotados {len(result.removed)}: {', '.join(p.name for p in result.removed)}")
 
 
 def _normalized_football_data_uk_batch(

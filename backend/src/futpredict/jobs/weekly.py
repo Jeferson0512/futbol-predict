@@ -72,6 +72,11 @@ from futpredict.ingest.providers.football_data_uk import (
     load_weekly_fixtures,
 )
 from futpredict.ingest.providers.understat import fetch_understat_xg
+from futpredict.jobs.backup import (
+    DEFAULT_KEEP,
+    create_database_backup,
+    default_backup_dir,
+)
 from futpredict.models.persisted_elo import (
     build_elo_rating_snapshots,
     load_elo_matches_from_db,
@@ -109,6 +114,9 @@ class WeeklyPipelineConfig:
     include_xg_ingest: bool = True
     include_training: bool = True
     include_future: bool = True
+    include_backup: bool = True
+    backup_keep: int = DEFAULT_KEEP
+    backup_dir: Path = field(default_factory=default_backup_dir)
     ingest_season: str = field(default_factory=current_season_code)
     espn_season_start_year: int = field(default_factory=current_europe_season_start_year)
     peru_year: int = field(default_factory=lambda: datetime.now(UTC).year)
@@ -144,6 +152,7 @@ def plan_weekly_steps(
     include_xg_ingest: bool = True,
     include_training: bool = True,
     include_future: bool = True,
+    include_backup: bool = True,
 ) -> list[str]:
     """Orden canonico de pasos del pipeline.
 
@@ -167,6 +176,9 @@ def plan_weekly_steps(
         steps += ["build_calibration_bins", "promote_champion"]
     if include_future:
         steps.append("freeze_future_predictions")
+    if include_backup:
+        # Ultimo: respalda el estado ya consolidado de la corrida.
+        steps.append("backup_database")
     return steps
 
 
@@ -192,6 +204,7 @@ def daily_pipeline_config(**overrides: object) -> WeeklyPipelineConfig:
         "include_xg_ingest": False,
         "include_training": False,
         "include_future": True,
+        "include_backup": True,
     }
     base.update(overrides)
     return WeeklyPipelineConfig(**base)  # type: ignore[arg-type]
@@ -266,6 +279,10 @@ def run_weekly_pipeline(
             "freeze_future_predictions",
             lambda: _freeze_future_predictions(session, cfg, serving, timestamp, dry_run),
         )
+    if cfg.include_backup:
+        # Best-effort: el trabajo del pipeline ya esta commiteado, un backup
+        # fallido no debe invalidarlo. El resumen final lo deja visible.
+        step("backup_database", lambda: _backup_database(cfg, timestamp, dry_run), fatal=False)
 
     if dry_run:
         session.rollback()
@@ -597,6 +614,30 @@ def _freeze_future_predictions(
         f"eligible_fixtures={summary.eligible_fixtures} "
         f"candidates={summary.candidates} inserted={summary.inserted_predictions} "
         f"existing={summary.existing_predictions}"
+    )
+
+
+def _backup_database(cfg: WeeklyPipelineConfig, timestamp: datetime, dry_run: bool) -> str:
+    """Respalda la base y rota los dumps antiguos.
+
+    Las predicciones congeladas no se pueden regenerar (nunca se reescribe una
+    prediccion historica), asi que el dump es la unica red de seguridad real.
+    """
+    from futpredict.core.config import settings
+
+    if dry_run:
+        return f"dir={cfg.backup_dir} keep={cfg.backup_keep} (dry-run, sin dump)"
+
+    result = create_database_backup(
+        settings.database_url,
+        out_dir=cfg.backup_dir,
+        keep=cfg.backup_keep,
+        now=timestamp,
+        pg_dump_path=settings.pg_dump_path,
+    )
+    return (
+        f"file={result.path.name} size_mb={result.size_mb:.1f} "
+        f"rotated={len(result.removed)} keep={cfg.backup_keep}"
     )
 
 
