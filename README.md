@@ -346,6 +346,40 @@ boosting 0.222 -> 0.217), acercandolos a `elo_simple` (0.203) aunque todavia sin
 superar a Elo ni al mercado. Ningun modelo ML es campeon aun; el mercado sigue
 liderando por RPS.
 
+## Modelo de goles (Dixon-Coles)
+
+Familia distinta a la de los tabulares: en vez de features rodantes estima
+fuerza de ataque y defensa por equipo mas ventaja local, y de ahi saca la matriz
+de marcadores. Suma dos cosas sobre un Poisson plano: correccion de dependencia
+en marcadores bajos (donde el Poisson independiente subestima empates) y
+decaimiento temporal (los partidos viejos pesan menos).
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+# Medir sin escribir (por defecto, las tres ligas sin cuotas).
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-goals-walk-forward-db
+
+# Medir Big-5 y persistir metricas + predicciones congeladas.
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-goals-walk-forward-db --divisions E0,SP1,I1,D1,F1 --initial-train-seasons 3 --persist
+```
+
+**Medicion honesta (comparacion sobre los mismos partidos):** Dixon-Coles
+**gana en las tres ligas sin cuotas** y es campeon en ellas — Peru 0,1929 vs
+0,1977 de Elo, Brasil 0,2112 vs 0,2124, Argentina 0,2155 vs 0,2160. En los
+Big-5 queda tercero (0,2063) por detras de Elo (0,2027) y del mercado (0,1960):
+el mercado sigue siendo imbatible donde hay cuotas.
+
+Dos limites que conviene tener presentes:
+
+- El modelo **omite** los partidos con equipos que no vio entrenando (recien
+  ascendidos): ~11% de los casos. Se salta la prediccion en vez de inventarla,
+  igual que `market_avg_odds` cuando falta la cuota. Por eso su `n` es menor y
+  los agregados no estan sobre el conjunto exacto de los baselines.
+- Un ajuste degenerado (pocos equipos, marcadores sin varianza) devuelve `None`
+  en vez de lanzar: no puede tumbar el pipeline ni un request del API.
+
 ## Reglas del proyecto
 
 - Nunca usar split aleatorio para validar modelos de partidos.

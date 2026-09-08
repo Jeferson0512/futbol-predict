@@ -12,9 +12,16 @@ from futpredict.evaluation.db_walk_forward import (
 )
 from futpredict.models.baseline import always_home_probabilities, historical_frequency_probabilities
 from futpredict.models.elo import EloConfig, expected_home_score, update_elo
+from futpredict.models.poisson import (
+    DIXON_COLES_MODEL_NAME,
+    MIN_TRAIN_MATCHES,
+    DixonColesMatchModel,
+    goal_samples_from_matches,
+)
 
 SUPPORTED_FUTURE_MODELS = (
     "market_avg_odds",
+    DIXON_COLES_MODEL_NAME,
     "elo_simple",
     "historical_frequency",
     "always_home",
@@ -37,6 +44,11 @@ class _PredictionState:
     result_counts: dict[str, list[int]]
     ratings: dict[tuple[str, str], float]
     train_windows: dict[str, tuple[datetime, datetime]]
+    matches_by_division: dict[str, list[MatchResult]]
+    # Dixon-Coles se ajusta por division y solo cuando hace falta: el ajuste
+    # cuesta decimas de segundo y este codigo corre en cada request del API.
+    # `None` marca una division con datos insuficientes, para no reintentar.
+    goal_models: dict[str, DixonColesMatchModel | None]
 
 
 def build_fixture_predictions(
@@ -92,9 +104,11 @@ def _build_prediction_state(
     result_counts: dict[str, list[int]] = {}
     ratings: dict[tuple[str, str], float] = {}
     train_windows: dict[str, tuple[datetime, datetime]] = {}
+    matches_by_division: dict[str, list[MatchResult]] = {}
 
     for match in sorted(training_matches, key=lambda item: item.kickoff_utc):
         group = match.division
+        matches_by_division.setdefault(group, []).append(match)
         counts = result_counts.setdefault(group, [0, 0, 0])
         if match.outcome == "H":
             counts[0] += 1
@@ -127,7 +141,26 @@ def _build_prediction_state(
         result_counts=result_counts,
         ratings=ratings,
         train_windows=train_windows,
+        matches_by_division=matches_by_division,
+        goal_models={},
     )
+
+
+def _goal_model_for_division(
+    state: _PredictionState,
+    division: str,
+) -> DixonColesMatchModel | None:
+    """Ajusta Dixon-Coles para una division la primera vez que se pide."""
+    if division in state.goal_models:
+        return state.goal_models[division]
+
+    samples = goal_samples_from_matches(state.matches_by_division.get(division, []))
+    if len(samples) < MIN_TRAIN_MATCHES:
+        state.goal_models[division] = None
+        return None
+    model = DixonColesMatchModel().fit(samples)
+    state.goal_models[division] = model
+    return model
 
 
 def _probabilities_for_model(
@@ -143,6 +176,11 @@ def _probabilities_for_model(
     if model_name == "historical_frequency":
         counts = state.result_counts.get(fixture.division, [0, 0, 0])
         return historical_frequency_probabilities(counts[0], counts[1], counts[2])
+    if model_name == DIXON_COLES_MODEL_NAME:
+        model = _goal_model_for_division(state, fixture.division)
+        if model is None:
+            return None
+        return model.predict_proba(fixture.home_team, fixture.away_team)
     if model_name == "market_avg_odds":
         return market_probabilities(_fixture_as_market_match(fixture))
     if model_name == "elo_simple":

@@ -432,7 +432,14 @@ def fixture_predictions(
                 cutoff_utc=generated_at,
                 division_codes=division_codes,
             )
-            rankings = model_ranking_rows(session, min_matches=100)
+            # El ranking se limita a las ligas pedidas: "mejor disponible"
+            # debe significar mejor EN ESA LIGA. Con el ranking global, los
+            # Big-5 (que tienen mercado) decidian por Peru, Brasil y Argentina.
+            rankings = model_ranking_rows(
+                session,
+                min_matches=100,
+                division_codes=division_codes,
+            )
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,

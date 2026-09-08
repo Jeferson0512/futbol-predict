@@ -71,7 +71,8 @@
 - [x] Reentrenamiento walk-forward dentro del job.
 - [x] Promocion de modelo campeon por RPS (`promote-champion`, un campeon por liga).
 - [x] Predicciones congeladas de la siguiente fecha (`freeze-future-predictions-db`).
-- [ ] Programacion automatica (Windows Task Scheduler / cron / GitHub Actions).
+- [x] Programacion automatica (Windows Task Scheduler: diario 07:00, semanal lunes 08:00).
+- [x] Backup rotativo automatico al final de cada corrida (`backup-db`).
 
 ## Fase 6 - ML tabular
 
@@ -93,7 +94,24 @@ App React "Pronosticos" (toggle con el panel analitico), 5 vistas:
 
 ## Fase 8 - Expansion
 
-- [ ] Brasil.
-- [ ] Argentina.
-- [ ] Liga 1 Peru.
-- [ ] Ajuste de parametros por liga.
+- [x] Liga 1 Peru (ESPN).
+- [x] Brasil (ESPN).
+- [x] Argentina (ESPN).
+- [x] Job diario separado del semanal.
+- [x] Campeon por liga (no uno global).
+- [x] xG (Understat) integrado al job semanal.
+- [ ] Ajuste de parametros por liga (Elo comparte k=20 y ventaja local 65 en las 8).
+
+## Fase 9 - Cuotas frescas y cobertura
+
+- [x] Resultados usa el modelo fresco por liga.
+- [x] Brasil y Argentina via ESPN.
+- [ ] Cuotas de la temporada en curso (requiere plan de pago; decision del usuario).
+
+## Fase 10 - Modelo de goles
+
+- [x] Dixon-Coles sobre `penaltyblog` (`models/poisson.py`).
+- [x] Walk-forward propio con las mismas garantias anti-leakage.
+- [x] Compite por campeon y congela historial (campeon en PER1, BRA1 y ARG1).
+- [x] Integrado al job semanal y a las predicciones futuras.
+- [ ] Marcador exacto y over/under en la app (la matriz de goles ya se calcula).

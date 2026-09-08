@@ -56,6 +56,10 @@ from futpredict.evaluation.db_walk_forward import (
     WalkForwardPersistenceSummary,
     upsert_walk_forward_metrics,
 )
+from futpredict.evaluation.goals_walk_forward import (
+    run_goal_model_walk_forward,
+    run_goal_model_walk_forward_predictions,
+)
 from futpredict.evaluation.ml_walk_forward import (
     ml_models_for_keys,
     run_configured_ml_walk_forward,
@@ -1556,6 +1560,108 @@ def _echo_pipeline_results(results: list[WeeklyStepResult]) -> None:
         err=True,
     )
     raise typer.Exit(1)
+
+
+@app.command("backtest-goals-walk-forward-db")
+def backtest_goals_walk_forward_db(
+    divisions: str = typer.Option(
+        "PER1,BRA1,ARG1",
+        help="Divisiones separadas por coma. Dixon-Coles rinde donde no hay cuotas.",
+    ),
+    initial_train_seasons: int = typer.Option(
+        2,
+        min=1,
+        help="Temporadas iniciales de entrenamiento.",
+    ),
+    persist: bool = typer.Option(False, help="Guardar las metricas en PostgreSQL."),
+) -> None:
+    """Walk-forward del modelo de goles Dixon-Coles, comparado con los baselines.
+
+    Los baselines se restringen a las mismas ventanas que Dixon-Coles pudo
+    evaluar. Aun asi el `n` puede diferir: Dixon-Coles omite los partidos con
+    equipos que no vio entrenando (recien ascendidos), asi que dentro de una
+    misma ventana predice menos partidos. La salida lo advierte cuando pasa.
+    """
+    division_codes = [code.strip().upper() for code in divisions.split(",") if code.strip()]
+    if not division_codes:
+        typer.echo("Indica al menos una division.", err=True)
+        raise typer.Exit(1)
+
+    matches = _load_db_match_results(
+        start_season=DEFAULT_BIG_FIVE_START_SEASON,
+        end_season="2627",
+        divisions=division_codes,
+    )
+    if not matches:
+        typer.echo(f"No hay partidos para {', '.join(division_codes)}.", err=True)
+        raise typer.Exit(1)
+
+    goal_metrics: list[WalkForwardMetric] = []
+    goal_predictions: list[WalkForwardPrediction] = []
+    baseline_metrics: list[WalkForwardMetric] = []
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        if len(seasons) <= initial_train_seasons:
+            typer.echo(f"{division}: solo {len(seasons)} temporadas, se omite.", err=True)
+            continue
+        try:
+            goal_metrics += run_goal_model_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+            baseline_metrics += run_expanding_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+            goal_predictions += run_goal_model_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+        except ValueError as exc:
+            typer.echo(f"{division}: {exc}", err=True)
+
+    if not goal_metrics:
+        typer.echo("Dixon-Coles no pudo evaluar ninguna ventana.", err=True)
+        raise typer.Exit(1)
+
+    windows = {(metric.division, metric.evaluation_season) for metric in goal_metrics}
+    comparable = [m for m in baseline_metrics if (m.division, m.evaluation_season) in windows]
+    _echo_walk_forward_summary([*comparable, *goal_metrics])
+
+    goal_n = sum(metric.summary.n_matches for metric in goal_metrics)
+    baseline_n = max(
+        (metric.summary.n_matches for metric in comparable),
+        default=0,
+    ) and sum(m.summary.n_matches for m in comparable if m.summary.model == "elo_simple")
+    if baseline_n and goal_n < baseline_n:
+        typer.echo(
+            f"Aviso: dixon_coles predijo {goal_n} de {baseline_n} partidos "
+            f"({baseline_n - goal_n} con equipos que no vio entrenando). "
+            "Los RPS no estan sobre el mismo conjunto exacto.",
+            err=True,
+        )
+
+    if not persist:
+        typer.echo("Sin --persist: no se escribio nada en PostgreSQL.")
+        return
+    _persist_walk_forward_metrics(goal_metrics)
+    # Congelar tambien por partido: sin esto el modelo puede ser campeon en
+    # "Proximos" pero no tener historial que mostrar en "Resultados".
+    _persist_walk_forward_predictions(goal_predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
 
 
 @app.command("run-weekly")
