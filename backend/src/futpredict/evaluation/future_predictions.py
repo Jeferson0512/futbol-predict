@@ -3,12 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from futpredict.data.altitude import division_has_altitude
 from futpredict.domain.fixtures import Fixture
 from futpredict.domain.matches import MatchResult
 from futpredict.evaluation.backtest import market_probabilities
 from futpredict.evaluation.db_walk_forward import (
     ALGORITHM_BY_MODEL,
     WALK_FORWARD_FEATURE_SET_VERSION,
+)
+from futpredict.models.altitude_elo import (
+    ALTITUDE_ELO_MODEL_NAME,
+    AltitudeEloModel,
 )
 from futpredict.models.baseline import always_home_probabilities, historical_frequency_probabilities
 from futpredict.models.elo import EloConfig, expected_home_score, update_elo
@@ -21,6 +26,7 @@ from futpredict.models.poisson import (
 
 SUPPORTED_FUTURE_MODELS = (
     "market_avg_odds",
+    ALTITUDE_ELO_MODEL_NAME,
     DIXON_COLES_MODEL_NAME,
     "elo_simple",
     "historical_frequency",
@@ -49,6 +55,7 @@ class _PredictionState:
     # cuesta decimas de segundo y este codigo corre en cada request del API.
     # `None` marca una division con datos insuficientes, para no reintentar.
     goal_models: dict[str, DixonColesMatchModel | None]
+    altitude_models: dict[str, AltitudeEloModel | None]
 
 
 def build_fixture_predictions(
@@ -143,7 +150,23 @@ def _build_prediction_state(
         train_windows=train_windows,
         matches_by_division=matches_by_division,
         goal_models={},
+        altitude_models={},
     )
+
+
+def _altitude_model_for_division(
+    state: _PredictionState,
+    division: str,
+) -> AltitudeEloModel | None:
+    """Elo con altitud, solo en las ligas que tienen tabla de altitudes."""
+    if division in state.altitude_models:
+        return state.altitude_models[division]
+    if not division_has_altitude(division):
+        state.altitude_models[division] = None
+        return None
+    model = AltitudeEloModel().fit(state.matches_by_division.get(division, []))
+    state.altitude_models[division] = model
+    return model
 
 
 def _goal_model_for_division(
@@ -176,6 +199,11 @@ def _probabilities_for_model(
     if model_name == "historical_frequency":
         counts = state.result_counts.get(fixture.division, [0, 0, 0])
         return historical_frequency_probabilities(counts[0], counts[1], counts[2])
+    if model_name == ALTITUDE_ELO_MODEL_NAME:
+        altitude_model = _altitude_model_for_division(state, fixture.division)
+        if altitude_model is None:
+            return None
+        return altitude_model.predict_proba(_fixture_as_market_match(fixture))
     if model_name == DIXON_COLES_MODEL_NAME:
         model = _goal_model_for_division(state, fixture.division)
         if model is None:

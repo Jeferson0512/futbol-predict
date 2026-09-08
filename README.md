@@ -380,6 +380,61 @@ Dos limites que conviene tener presentes:
 - Un ajuste degenerado (pocos equipos, marcadores sin varianza) devuelve `None`
   en vez de lanzar: no puede tumbar el pipeline ni un request del API.
 
+## Altitud en la Liga 1 de Peru
+
+En Liga 1 el desnivel entre sedes mueve el resultado mas que ningun otro factor
+que los modelos vieran hasta ahora. Medido sobre 1.735 partidos (2021-2026), por
+**valor absoluto** de la diferencia de altitud entre las ciudades sede:
+
+```text
+|diferencia|      n     %local   dif. goles
+< 300 m          506     42.9%      +0.24
+300-1000 m       266     45.5%      +0.41
+1000-2000 m      122     45.9%      +0.28
+2000-3000 m      408     52.7%      +0.71
+> 3000 m         433     59.1%      +0.90
+```
+
+Referencia sin desnivel: Premier League 44.6% y +0.28 — igual que el tramo bajo.
+
+**El efecto es simetrico y eso es lo que no se ve venir:** no es que la altura
+favorezca al local, es que viajar a una altitud muy distinta perjudica al
+visitante **en las dos direcciones**. Un equipo de Cusco visitando Lima sufre
+casi tanto como uno de Lima visitando Cusco. Por eso la variable util es el
+modulo del desnivel; con signo, los dos extremos se cancelan y la senal se
+diluye.
+
+`elo_altitude` (`models/altitude_elo.py`) deja el Elo intacto y solo hace
+variable la ventaja local:
+
+```text
+ventaja_local = 65 + 60 * min(|desnivel_km|, 4)
+```
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+.\.venv\Scripts\python.exe -m futpredict.cli altitude-walk-forward-db
+.\.venv\Scripts\python.exe -m futpredict.cli altitude-walk-forward-db --persist
+```
+
+**Medicion honesta.** Los dos parametros se eligieron por rejilla sobre
+2021-2023 (temporadas de entrenamiento) y se evaluaron aparte en 2024-2026:
+RPS **0.1893** frente a 0.1974 de `elo_simple`. Sobre todas las ventanas
+disponibles y los mismos 1.201 partidos: **0.1882** vs 0.1985, con 54.9% de
+acierto frente a 53.2%. Es el campeon de Liga 1 y **el mejor RPS de las ocho
+ligas del proyecto**.
+
+Control de correccion: con `advantage_per_km=0` el modelo reproduce
+`elo_simple` hasta el ultimo decimal (diferencia 0.000000), asi que la ganancia
+viene de la altitud y no de otro cambio colado.
+
+Limites: las cifras son la altitud de la **ciudad sede**, no del cesped del
+estadio, y no siguen a un club que cambia de sede a mitad de temporada. Fuera de
+las ligas con tabla de altitudes el modelo se omite en vez de duplicar a
+`elo_simple`.
+
 ## Reglas del proyecto
 
 - Nunca usar split aleatorio para validar modelos de partidos.

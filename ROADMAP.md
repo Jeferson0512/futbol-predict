@@ -100,7 +100,8 @@ App React "Pronosticos" (toggle con el panel analitico), 5 vistas:
 - [x] Job diario separado del semanal.
 - [x] Campeon por liga (no uno global).
 - [x] xG (Understat) integrado al job semanal.
-- [ ] Ajuste de parametros por liga (Elo comparte k=20 y ventaja local 65 en las 8).
+- [x] Ajuste de parametros por liga: ventaja local por altitud en PER1 (`elo_altitude`).
+- [ ] Ajustar tambien k y la tasa de empate por liga (Argentina empata mucho mas).
 
 ## Fase 9 - Cuotas frescas y cobertura
 
@@ -115,3 +116,11 @@ App React "Pronosticos" (toggle con el panel analitico), 5 vistas:
 - [x] Compite por campeon y congela historial (campeon en PER1, BRA1 y ARG1).
 - [x] Integrado al job semanal y a las predicciones futuras.
 - [ ] Marcador exacto y over/under en la app (la matriz de goles ya se calcula).
+
+## Fase 11 - Altitud
+
+- [x] Tabla de altitudes de las 28 sedes de Liga 1 (cobertura 100%).
+- [x] `elo_altitude`: ventaja local en funcion del modulo del desnivel.
+- [x] Parametros calibrados solo con temporadas de entrenamiento.
+- [x] Campeon de Liga 1 Peru (RPS 0.1882, el mejor de las 8 ligas).
+- [ ] Extender a otras ligas de altitud (Bolivia, Ecuador, Colombia).

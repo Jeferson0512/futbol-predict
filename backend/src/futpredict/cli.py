@@ -9,6 +9,7 @@ import typer
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from futpredict.data.altitude import altitude_coverage, division_has_altitude
 from futpredict.data.db_espn_europe import EspnEuropeLoadSummary, load_all_espn_europe
 from futpredict.data.db_espn_league import (
     ESPN_LEAGUES,
@@ -28,6 +29,10 @@ from futpredict.data.football_data_uk_catalog import (
     season_range,
 )
 from futpredict.domain.matches import MatchResult
+from futpredict.evaluation.altitude_walk_forward import (
+    run_altitude_elo_walk_forward,
+    run_altitude_elo_walk_forward_predictions,
+)
 from futpredict.evaluation.backtest import MetricSummary, PredictionProvider, backtest_summary
 from futpredict.evaluation.db_calibration import (
     CalibrationBuild,
@@ -135,6 +140,7 @@ from futpredict.jobs.weekly import (
     daily_pipeline_config,
     run_weekly_pipeline,
 )
+from futpredict.models.altitude_elo import AltitudeEloConfig
 from futpredict.models.club_elo import (
     ClubEloPredictionCoverage,
     ClubEloPredictor,
@@ -1661,6 +1667,112 @@ def backtest_goals_walk_forward_db(
     # Congelar tambien por partido: sin esto el modelo puede ser campeon en
     # "Proximos" pero no tener historial que mostrar en "Resultados".
     _persist_walk_forward_predictions(goal_predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
+@app.command("altitude-walk-forward-db")
+def altitude_walk_forward_db(
+    divisions: str = typer.Option(
+        "PER1",
+        help="Divisiones con tabla de altitudes. Hoy solo Liga 1 de Peru.",
+    ),
+    initial_train_seasons: int = typer.Option(2, min=1, help="Temporadas de entrenamiento."),
+    advantage_per_km: float = typer.Option(
+        None,
+        help="Puntos Elo de ventaja local por km de desnivel. Por defecto, el calibrado.",
+    ),
+    persist: bool = typer.Option(False, help="Guardar metricas y predicciones en PostgreSQL."),
+) -> None:
+    """Elo con ventaja local ajustada por el desnivel de altitud entre sedes.
+
+    En Liga 1 el desnivel mueve el resultado mas que ningun otro factor visible:
+    con mas de 3.000 m de diferencia el local gana el 59,1% en vez del 42,9%. El
+    efecto es simetrico (viajar a otra altitud perjudica en las dos direcciones),
+    asi que se usa el modulo del desnivel.
+    """
+    division_codes = [code.strip().upper() for code in divisions.split(",") if code.strip()]
+    unknown = [code for code in division_codes if not division_has_altitude(code)]
+    if unknown:
+        typer.echo(
+            f"Sin tabla de altitudes para: {', '.join(unknown)}. "
+            "Anadela en data/altitude.py antes de medir.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    matches = _load_db_match_results(
+        start_season=DEFAULT_BIG_FIVE_START_SEASON,
+        end_season="2627",
+        divisions=division_codes,
+    )
+    if not matches:
+        typer.echo(f"No hay partidos para {', '.join(division_codes)}.", err=True)
+        raise typer.Exit(1)
+
+    known, total, missing = altitude_coverage(
+        [(match.home_team, match.away_team, match.division) for match in matches]
+    )
+    typer.echo(f"cobertura_altitud={known}/{total}")
+    if missing:
+        typer.echo(f"Equipos sin altitud: {', '.join(missing)}", err=True)
+
+    config = (
+        AltitudeEloConfig(advantage_per_km=advantage_per_km)
+        if advantage_per_km is not None
+        else None
+    )
+    metrics: list[WalkForwardMetric] = []
+    predictions: list[WalkForwardPrediction] = []
+    baseline: list[WalkForwardMetric] = []
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        if len(seasons) <= initial_train_seasons:
+            typer.echo(f"{division}: solo {len(seasons)} temporadas, se omite.", err=True)
+            continue
+        try:
+            metrics += run_altitude_elo_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+                config=config,
+            )
+            predictions += run_altitude_elo_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+                config=config,
+            )
+            baseline += run_expanding_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+        except ValueError as exc:
+            typer.echo(f"{division}: {exc}", err=True)
+
+    if not metrics:
+        typer.echo("Sin ventanas evaluables.", err=True)
+        raise typer.Exit(1)
+
+    windows = {(metric.division, metric.evaluation_season) for metric in metrics}
+    comparable = [m for m in baseline if (m.division, m.evaluation_season) in windows]
+    _echo_walk_forward_summary([*comparable, *metrics])
+
+    if not persist:
+        typer.echo("Sin --persist: no se escribio nada en PostgreSQL.")
+        return
+    _persist_walk_forward_metrics(metrics)
+    _persist_walk_forward_predictions(predictions)
     _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
 
 

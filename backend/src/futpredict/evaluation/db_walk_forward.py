@@ -25,6 +25,7 @@ ALGORITHM_BY_MODEL: dict[str, str] = {
     "gradient_boosting": "gradient_boosting",
     "logistic_calibrated": "logistic_isotonic",
     "dixon_coles": "dixon_coles",
+    "elo_altitude": "elo_altitude",
 }
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy.orm import Session
 
+from futpredict.data.altitude import division_has_altitude
 from futpredict.data.db_espn_europe import load_all_espn_europe
 from futpredict.data.db_espn_league import (
     ARGENTINA,
@@ -25,6 +26,10 @@ from futpredict.data.football_data_uk_catalog import (
     current_season_code,
 )
 from futpredict.domain.matches import MatchResult
+from futpredict.evaluation.altitude_walk_forward import (
+    run_altitude_elo_walk_forward,
+    run_altitude_elo_walk_forward_predictions,
+)
 from futpredict.evaluation.db_calibration import (
     build_calibration_from_predictions,
     upsert_calibration_bins,
@@ -183,6 +188,7 @@ def plan_weekly_steps(
         steps += [
             "walk_forward_metrics",
             "goals_walk_forward",
+            "altitude_walk_forward",
             "freeze_walk_forward_predictions",
         ]
     steps.append("evaluate_predictions")
@@ -283,6 +289,10 @@ def run_weekly_pipeline(
         step(
             "goals_walk_forward",
             lambda: _goals_walk_forward(session, cfg, serving, dry_run),
+        )
+        step(
+            "altitude_walk_forward",
+            lambda: _altitude_walk_forward(session, cfg, serving, dry_run),
         )
         step(
             "freeze_walk_forward_predictions",
@@ -619,6 +629,74 @@ def _goals_walk_forward(
     detail = f"divisions={len(by_division) - len(skipped)} windows={len(metrics)}"
     if skipped:
         detail = f"{detail} skipped={','.join(skipped)}"
+    if not metrics:
+        return f"{detail} (sin ventanas evaluables)"
+    if dry_run:
+        return f"{detail} predictions={len(predictions)}"
+    summary = upsert_walk_forward_metrics(session, metrics)
+    frozen = freeze_walk_forward_predictions(session, predictions)
+    return (
+        f"{detail} model_versions={summary.model_versions} metrics={summary.metrics} "
+        f"frozen={frozen.inserted_predictions}"
+    )
+
+
+def _altitude_walk_forward(
+    session: Session,
+    cfg: WeeklyPipelineConfig,
+    divisions: list[str],
+    dry_run: bool,
+) -> str:
+    """Elo con ventaja local ajustada por desnivel, solo donde hay altitudes.
+
+    Fuera de esas ligas el ajuste seria identico a `elo_simple`: se omite en vez
+    de duplicar un baseline que ya compite.
+    """
+    targets = [division for division in divisions if division_has_altitude(division)]
+    if not targets:
+        return "divisions=0 (ninguna liga con tabla de altitudes)"
+
+    matches = load_match_results_from_db(
+        session,
+        start_season=cfg.start_season,
+        end_season=cfg.end_season,
+        division_codes=targets,
+    )
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    metrics: list[WalkForwardMetric] = []
+    predictions: list[WalkForwardPrediction] = []
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        train_seasons = (
+            cfg.initial_train_seasons
+            if division in set(cfg.divisions)
+            else cfg.calendar_initial_train_seasons
+        )
+        if len(seasons) <= train_seasons:
+            continue
+        metrics.extend(
+            run_altitude_elo_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+        predictions.extend(
+            run_altitude_elo_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+
+    detail = f"divisions={len(by_division)} windows={len(metrics)}"
     if not metrics:
         return f"{detail} (sin ventanas evaluables)"
     if dry_run:

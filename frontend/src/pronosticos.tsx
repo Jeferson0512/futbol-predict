@@ -31,11 +31,14 @@ const OUT = ["h", "d", "aw"] as const;
 // cuotas), así que muestra la temporada en curso. El campeón `market_avg_odds`
 // se queda viejo en la temporada actual mientras no haya cuotas frescas.
 //
-// En las ligas sudamericanas el campeón es `dixon_coles`, que también está
-// fresco (solo necesita marcadores) y les gana a Elo por RPS: Perú 0,193 vs
-// 0,198, Brasil 0,211 vs 0,212, Argentina 0,216 vs 0,216.
+// En las ligas sudamericanas el campeón no es Elo y también está fresco (no
+// necesita cuotas), así que cada una usa el suyo:
+//   PER1 → elo_altitude (0,188): Elo con la ventaja local ajustada por el
+//          desnivel entre sedes. Es el mejor RPS de las 8 ligas.
+//   BRA1 → dixon_coles (0,211 vs 0,212 de Elo)
+//   ARG1 → dixon_coles (0,215 vs 0,216 de Elo)
 const LEAGUE_MODEL: Record<string, string> = {
-  PER1: "dixon_coles",
+  PER1: "elo_altitude",
   BRA1: "dixon_coles",
   ARG1: "dixon_coles",
 };
