@@ -270,6 +270,29 @@ $env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_pred
 .\.venv\Scripts\python.exe -m futpredict.cli freeze-future-predictions-db --days 14
 ```
 
+### Backup automatico
+
+Cada corrida de `run-daily` y `run-weekly` termina sacando un `pg_dump -Fc` a
+`backups/postgres/auto/` y rotando los mas viejos (por defecto conserva 14).
+Las predicciones congeladas son irreproducibles: la regla del proyecto prohibe
+reescribir una prediccion historica, asi que un `freeze` perdido no se puede
+regenerar sin romper la honestidad del registro.
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db --list
+.\.venv\Scripts\python.exe -m futpredict.cli backup-db --keep 30
+```
+
+Si `pg_dump` no esta en el PATH (tipico en Windows), define `PG_DUMP_PATH` en
+`backend/.env` con la ruta al binario. La carpeta `auto/` esta ignorada por Git;
+el dump de handoff versionado en `backups/postgres/` se sigue creando a mano.
+
+El backup es best-effort: si falla no invalida el trabajo ya commiteado del
+pipeline, pero queda reportado en el resumen final y `run-daily`/`run-weekly`
+terminan con codigo 1 para que Windows Task Scheduler lo muestre.
+
 El campeon se elige por RPS ponderado global y se marca exactamente una
 `model_version` por liga (la de la ventana mas reciente), respetando el indice
 `uq_one_champion_per_league`. Las predicciones futuras solo se congelan para
@@ -322,6 +345,95 @@ Medicion honesta: el xG mejora los tres modelos ML (logistica 0.216 -> 0.213,
 boosting 0.222 -> 0.217), acercandolos a `elo_simple` (0.203) aunque todavia sin
 superar a Elo ni al mercado. Ningun modelo ML es campeon aun; el mercado sigue
 liderando por RPS.
+
+## Modelo de goles (Dixon-Coles)
+
+Familia distinta a la de los tabulares: en vez de features rodantes estima
+fuerza de ataque y defensa por equipo mas ventaja local, y de ahi saca la matriz
+de marcadores. Suma dos cosas sobre un Poisson plano: correccion de dependencia
+en marcadores bajos (donde el Poisson independiente subestima empates) y
+decaimiento temporal (los partidos viejos pesan menos).
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+# Medir sin escribir (por defecto, las tres ligas sin cuotas).
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-goals-walk-forward-db
+
+# Medir Big-5 y persistir metricas + predicciones congeladas.
+.\.venv\Scripts\python.exe -m futpredict.cli backtest-goals-walk-forward-db --divisions E0,SP1,I1,D1,F1 --initial-train-seasons 3 --persist
+```
+
+**Medicion honesta (comparacion sobre los mismos partidos):** Dixon-Coles
+**gana en las tres ligas sin cuotas** y es campeon en ellas — Peru 0,1929 vs
+0,1977 de Elo, Brasil 0,2112 vs 0,2124, Argentina 0,2155 vs 0,2160. En los
+Big-5 queda tercero (0,2063) por detras de Elo (0,2027) y del mercado (0,1960):
+el mercado sigue siendo imbatible donde hay cuotas.
+
+Dos limites que conviene tener presentes:
+
+- El modelo **omite** los partidos con equipos que no vio entrenando (recien
+  ascendidos): ~11% de los casos. Se salta la prediccion en vez de inventarla,
+  igual que `market_avg_odds` cuando falta la cuota. Por eso su `n` es menor y
+  los agregados no estan sobre el conjunto exacto de los baselines.
+- Un ajuste degenerado (pocos equipos, marcadores sin varianza) devuelve `None`
+  en vez de lanzar: no puede tumbar el pipeline ni un request del API.
+
+## Altitud en la Liga 1 de Peru
+
+En Liga 1 el desnivel entre sedes mueve el resultado mas que ningun otro factor
+que los modelos vieran hasta ahora. Medido sobre 1.735 partidos (2021-2026), por
+**valor absoluto** de la diferencia de altitud entre las ciudades sede:
+
+```text
+|diferencia|      n     %local   dif. goles
+< 300 m          506     42.9%      +0.24
+300-1000 m       266     45.5%      +0.41
+1000-2000 m      122     45.9%      +0.28
+2000-3000 m      408     52.7%      +0.71
+> 3000 m         433     59.1%      +0.90
+```
+
+Referencia sin desnivel: Premier League 44.6% y +0.28 — igual que el tramo bajo.
+
+**El efecto es simetrico y eso es lo que no se ve venir:** no es que la altura
+favorezca al local, es que viajar a una altitud muy distinta perjudica al
+visitante **en las dos direcciones**. Un equipo de Cusco visitando Lima sufre
+casi tanto como uno de Lima visitando Cusco. Por eso la variable util es el
+modulo del desnivel; con signo, los dos extremos se cancelan y la senal se
+diluye.
+
+`elo_altitude` (`models/altitude_elo.py`) deja el Elo intacto y solo hace
+variable la ventaja local:
+
+```text
+ventaja_local = 65 + 60 * min(|desnivel_km|, 4)
+```
+
+```powershell
+cd E:\Trabajos\Propios\futbol-predict\backend
+$env:DATABASE_URL="postgresql+psycopg://futbol:futbol@localhost:5433/futbol_predict"
+
+.\.venv\Scripts\python.exe -m futpredict.cli altitude-walk-forward-db
+.\.venv\Scripts\python.exe -m futpredict.cli altitude-walk-forward-db --persist
+```
+
+**Medicion honesta.** Los dos parametros se eligieron por rejilla sobre
+2021-2023 (temporadas de entrenamiento) y se evaluaron aparte en 2024-2026:
+RPS **0.1893** frente a 0.1974 de `elo_simple`. Sobre todas las ventanas
+disponibles y los mismos 1.201 partidos: **0.1882** vs 0.1985, con 54.9% de
+acierto frente a 53.2%. Es el campeon de Liga 1 y **el mejor RPS de las ocho
+ligas del proyecto**.
+
+Control de correccion: con `advantage_per_km=0` el modelo reproduce
+`elo_simple` hasta el ultimo decimal (diferencia 0.000000), asi que la ganancia
+viene de la altitud y no de otro cambio colado.
+
+Limites: las cifras son la altitud de la **ciudad sede**, no del cesped del
+estadio, y no siguen a un club que cambia de sede a mitad de temporada. Fuera de
+las ligas con tabla de altitudes el modelo se omite en vez de duplicar a
+`elo_simple`.
 
 ## Reglas del proyecto
 

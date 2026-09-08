@@ -24,6 +24,8 @@ ALGORITHM_BY_MODEL: dict[str, str] = {
     "logistic_regression": "multinomial_logit",
     "gradient_boosting": "gradient_boosting",
     "logistic_calibrated": "logistic_isotonic",
+    "dixon_coles": "dixon_coles",
+    "elo_altitude": "elo_altitude",
 }
 
 

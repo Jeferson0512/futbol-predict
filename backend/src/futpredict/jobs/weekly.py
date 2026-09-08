@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy.orm import Session
 
+from futpredict.data.altitude import division_has_altitude
 from futpredict.data.db_espn_europe import load_all_espn_europe
 from futpredict.data.db_espn_league import (
     ARGENTINA,
@@ -24,6 +25,11 @@ from futpredict.data.football_data_uk_catalog import (
     big_five_division_codes,
     current_season_code,
 )
+from futpredict.domain.matches import MatchResult
+from futpredict.evaluation.altitude_walk_forward import (
+    run_altitude_elo_walk_forward,
+    run_altitude_elo_walk_forward_predictions,
+)
 from futpredict.evaluation.db_calibration import (
     build_calibration_from_predictions,
     upsert_calibration_bins,
@@ -35,15 +41,21 @@ from futpredict.evaluation.db_predictions import (
     freeze_walk_forward_predictions,
 )
 from futpredict.evaluation.db_walk_forward import upsert_walk_forward_metrics
+from futpredict.evaluation.goals_walk_forward import (
+    run_goal_model_walk_forward,
+    run_goal_model_walk_forward_predictions,
+)
 from futpredict.evaluation.ml_walk_forward import (
     ml_models_for_keys,
     run_configured_ml_walk_forward,
 )
 from futpredict.evaluation.walk_forward import (
     DEFAULT_INITIAL_TRAIN_SEASONS,
+    WalkForwardMetric,
     run_expanding_walk_forward,
 )
 from futpredict.evaluation.walk_forward_predictions import (
+    WalkForwardPrediction,
     run_expanding_walk_forward_predictions,
 )
 from futpredict.features.db_features import (
@@ -72,6 +84,11 @@ from futpredict.ingest.providers.football_data_uk import (
     load_weekly_fixtures,
 )
 from futpredict.ingest.providers.understat import fetch_understat_xg
+from futpredict.jobs.backup import (
+    DEFAULT_KEEP,
+    create_database_backup,
+    default_backup_dir,
+)
 from futpredict.models.persisted_elo import (
     build_elo_rating_snapshots,
     load_elo_matches_from_db,
@@ -103,12 +120,18 @@ class WeeklyPipelineConfig:
     future_days: int = 14
     future_limit: int = 200
     champion_min_matches: int = 100
+    # Las ligas por ano calendario tienen ~6 temporadas: 3 de entrenamiento
+    # dejarian muy pocas ventanas de evaluacion.
+    calendar_initial_train_seasons: int = 2
     include_ingest: bool = True
     include_espn_ingest: bool = True
     include_peru_ingest: bool = True
     include_xg_ingest: bool = True
     include_training: bool = True
     include_future: bool = True
+    include_backup: bool = True
+    backup_keep: int = DEFAULT_KEEP
+    backup_dir: Path = field(default_factory=default_backup_dir)
     ingest_season: str = field(default_factory=current_season_code)
     espn_season_start_year: int = field(default_factory=current_europe_season_start_year)
     peru_year: int = field(default_factory=lambda: datetime.now(UTC).year)
@@ -144,6 +167,7 @@ def plan_weekly_steps(
     include_xg_ingest: bool = True,
     include_training: bool = True,
     include_future: bool = True,
+    include_backup: bool = True,
 ) -> list[str]:
     """Orden canonico de pasos del pipeline.
 
@@ -161,12 +185,20 @@ def plan_weekly_steps(
         steps.append("ingest_xg")
     steps += ["rebuild_elo", "rebuild_features"]
     if include_training:
-        steps += ["walk_forward_metrics", "freeze_walk_forward_predictions"]
+        steps += [
+            "walk_forward_metrics",
+            "goals_walk_forward",
+            "altitude_walk_forward",
+            "freeze_walk_forward_predictions",
+        ]
     steps.append("evaluate_predictions")
     if include_training:
         steps += ["build_calibration_bins", "promote_champion"]
     if include_future:
         steps.append("freeze_future_predictions")
+    if include_backup:
+        # Ultimo: respalda el estado ya consolidado de la corrida.
+        steps.append("backup_database")
     return steps
 
 
@@ -192,6 +224,7 @@ def daily_pipeline_config(**overrides: object) -> WeeklyPipelineConfig:
         "include_xg_ingest": False,
         "include_training": False,
         "include_future": True,
+        "include_backup": True,
     }
     base.update(overrides)
     return WeeklyPipelineConfig(**base)  # type: ignore[arg-type]
@@ -254,6 +287,14 @@ def run_weekly_pipeline(
             lambda: _walk_forward_metrics(session, cfg, divisions, dry_run),
         )
         step(
+            "goals_walk_forward",
+            lambda: _goals_walk_forward(session, cfg, serving, dry_run),
+        )
+        step(
+            "altitude_walk_forward",
+            lambda: _altitude_walk_forward(session, cfg, serving, dry_run),
+        )
+        step(
             "freeze_walk_forward_predictions",
             lambda: _freeze_walk_forward_predictions(session, cfg, divisions, dry_run),
         )
@@ -266,6 +307,10 @@ def run_weekly_pipeline(
             "freeze_future_predictions",
             lambda: _freeze_future_predictions(session, cfg, serving, timestamp, dry_run),
         )
+    if cfg.include_backup:
+        # Best-effort: el trabajo del pipeline ya esta commiteado, un backup
+        # fallido no debe invalidarlo. El resumen final lo deja visible.
+        step("backup_database", lambda: _backup_database(cfg, timestamp, dry_run), fatal=False)
 
     if dry_run:
         session.rollback()
@@ -523,6 +568,147 @@ def _walk_forward_metrics(
     return f"metrics={len(metrics)} ml_windows={len(ml_metrics)}"
 
 
+def _goals_walk_forward(
+    session: Session,
+    cfg: WeeklyPipelineConfig,
+    divisions: list[str],
+    dry_run: bool,
+) -> str:
+    """Walk-forward de Dixon-Coles sobre las 8 ligas servidas.
+
+    Va aparte de `_walk_forward_metrics` (solo Big-5) porque el modelo de goles
+    no necesita cuotas ni xG: rinde justamente en las ligas sudamericanas, donde
+    no hay mercado que marque el techo. Cada division deriva sus temporadas de
+    los datos, asi las de ano calendario (Peru, Brasil, Argentina) funcionan sin
+    caso especial.
+    """
+    matches = load_match_results_from_db(
+        session,
+        start_season=cfg.start_season,
+        end_season=cfg.end_season,
+        division_codes=divisions,
+    )
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    metrics: list[WalkForwardMetric] = []
+    predictions: list[WalkForwardPrediction] = []
+    skipped: list[str] = []
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        train_seasons = (
+            cfg.initial_train_seasons
+            if division in set(cfg.divisions)
+            else cfg.calendar_initial_train_seasons
+        )
+        if len(seasons) <= train_seasons:
+            skipped.append(division)
+            continue
+        metrics.extend(
+            run_goal_model_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+        # Congelar por partido ademas de las metricas: si el modelo llega a
+        # campeon, "Resultados" necesita su historial para mostrar aciertos.
+        predictions.extend(
+            run_goal_model_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+
+    detail = f"divisions={len(by_division) - len(skipped)} windows={len(metrics)}"
+    if skipped:
+        detail = f"{detail} skipped={','.join(skipped)}"
+    if not metrics:
+        return f"{detail} (sin ventanas evaluables)"
+    if dry_run:
+        return f"{detail} predictions={len(predictions)}"
+    summary = upsert_walk_forward_metrics(session, metrics)
+    frozen = freeze_walk_forward_predictions(session, predictions)
+    return (
+        f"{detail} model_versions={summary.model_versions} metrics={summary.metrics} "
+        f"frozen={frozen.inserted_predictions}"
+    )
+
+
+def _altitude_walk_forward(
+    session: Session,
+    cfg: WeeklyPipelineConfig,
+    divisions: list[str],
+    dry_run: bool,
+) -> str:
+    """Elo con ventaja local ajustada por desnivel, solo donde hay altitudes.
+
+    Fuera de esas ligas el ajuste seria identico a `elo_simple`: se omite en vez
+    de duplicar un baseline que ya compite.
+    """
+    targets = [division for division in divisions if division_has_altitude(division)]
+    if not targets:
+        return "divisions=0 (ninguna liga con tabla de altitudes)"
+
+    matches = load_match_results_from_db(
+        session,
+        start_season=cfg.start_season,
+        end_season=cfg.end_season,
+        division_codes=targets,
+    )
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    metrics: list[WalkForwardMetric] = []
+    predictions: list[WalkForwardPrediction] = []
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        train_seasons = (
+            cfg.initial_train_seasons
+            if division in set(cfg.divisions)
+            else cfg.calendar_initial_train_seasons
+        )
+        if len(seasons) <= train_seasons:
+            continue
+        metrics.extend(
+            run_altitude_elo_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+        predictions.extend(
+            run_altitude_elo_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=train_seasons,
+                seasons=seasons,
+            )
+        )
+
+    detail = f"divisions={len(by_division)} windows={len(metrics)}"
+    if not metrics:
+        return f"{detail} (sin ventanas evaluables)"
+    if dry_run:
+        return f"{detail} predictions={len(predictions)}"
+    summary = upsert_walk_forward_metrics(session, metrics)
+    frozen = freeze_walk_forward_predictions(session, predictions)
+    return (
+        f"{detail} model_versions={summary.model_versions} metrics={summary.metrics} "
+        f"frozen={frozen.inserted_predictions}"
+    )
+
+
 def _freeze_walk_forward_predictions(
     session: Session,
     cfg: WeeklyPipelineConfig,
@@ -597,6 +783,30 @@ def _freeze_future_predictions(
         f"eligible_fixtures={summary.eligible_fixtures} "
         f"candidates={summary.candidates} inserted={summary.inserted_predictions} "
         f"existing={summary.existing_predictions}"
+    )
+
+
+def _backup_database(cfg: WeeklyPipelineConfig, timestamp: datetime, dry_run: bool) -> str:
+    """Respalda la base y rota los dumps antiguos.
+
+    Las predicciones congeladas no se pueden regenerar (nunca se reescribe una
+    prediccion historica), asi que el dump es la unica red de seguridad real.
+    """
+    from futpredict.core.config import settings
+
+    if dry_run:
+        return f"dir={cfg.backup_dir} keep={cfg.backup_keep} (dry-run, sin dump)"
+
+    result = create_database_backup(
+        settings.database_url,
+        out_dir=cfg.backup_dir,
+        keep=cfg.backup_keep,
+        now=timestamp,
+        pg_dump_path=settings.pg_dump_path,
+    )
+    return (
+        f"file={result.path.name} size_mb={result.size_mb:.1f} "
+        f"rotated={len(result.removed)} keep={cfg.backup_keep}"
     )
 
 

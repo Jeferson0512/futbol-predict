@@ -32,3 +32,6 @@ frontend/dist/
 # Project handoff backups are intentionally versioned.
 !backups/
 !backups/**
+# ...pero los dumps automaticos del job (rotativos) no: se regeneran
+# cada corrida y abultarian el repo varios MB por semana.
+backups/postgres/auto/

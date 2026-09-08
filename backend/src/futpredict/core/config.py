@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://localhost:5000"
     football_data_org_token: str | None = None
     api_football_key: str | None = None
+    # Ruta al binario pg_dump cuando no esta en PATH (tipico en Windows,
+    # p.ej. C:\Program Files\PostgreSQL\18\bin\pg_dump.exe).
+    pg_dump_path: str | None = None
 
 
 @lru_cache

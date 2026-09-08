@@ -9,6 +9,7 @@ import typer
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from futpredict.data.altitude import altitude_coverage, division_has_altitude
 from futpredict.data.db_espn_europe import EspnEuropeLoadSummary, load_all_espn_europe
 from futpredict.data.db_espn_league import (
     ESPN_LEAGUES,
@@ -28,6 +29,10 @@ from futpredict.data.football_data_uk_catalog import (
     season_range,
 )
 from futpredict.domain.matches import MatchResult
+from futpredict.evaluation.altitude_walk_forward import (
+    run_altitude_elo_walk_forward,
+    run_altitude_elo_walk_forward_predictions,
+)
 from futpredict.evaluation.backtest import MetricSummary, PredictionProvider, backtest_summary
 from futpredict.evaluation.db_calibration import (
     CalibrationBuild,
@@ -55,6 +60,10 @@ from futpredict.evaluation.db_predictions import (
 from futpredict.evaluation.db_walk_forward import (
     WalkForwardPersistenceSummary,
     upsert_walk_forward_metrics,
+)
+from futpredict.evaluation.goals_walk_forward import (
+    run_goal_model_walk_forward,
+    run_goal_model_walk_forward_predictions,
 )
 from futpredict.evaluation.ml_walk_forward import (
     ml_models_for_keys,
@@ -117,12 +126,21 @@ from futpredict.ingest.providers.understat import (
     fetch_understat_xg,
     understat_xg_coverage,
 )
+from futpredict.jobs.backup import (
+    DEFAULT_KEEP,
+    BackupError,
+    create_database_backup,
+    default_backup_dir,
+    existing_backups,
+)
 from futpredict.jobs.weekly import (
     WeeklyPipelineConfig,
     WeeklyPipelineError,
+    WeeklyStepResult,
     daily_pipeline_config,
     run_weekly_pipeline,
 )
+from futpredict.models.altitude_elo import AltitudeEloConfig
 from futpredict.models.club_elo import (
     ClubEloPredictionCoverage,
     ClubEloPredictor,
@@ -1528,6 +1546,236 @@ def freeze_future_predictions_db(
         typer.echo("Dry run: no database writes executed.")
 
 
+def _echo_pipeline_results(results: list[WeeklyStepResult]) -> None:
+    """Imprime el detalle por paso y un resumen que hace visible cualquier fallo.
+
+    Los pasos best-effort (ingesta, backup) no abortan el pipeline, asi que sin
+    este resumen una corrida con ESPN caido terminaba en 0 y nadie se enteraba.
+    """
+    typer.echo("step,status,detail")
+    for result in results:
+        typer.echo(f"{result.name},{result.status},{result.detail}")
+
+    failed = [result for result in results if result.status == "error"]
+    if not failed:
+        typer.echo(f"resumen: {len(results)} pasos, todos correctos.")
+        return
+    names = ", ".join(result.name for result in failed)
+    typer.echo(
+        f"resumen: {len(failed)} de {len(results)} pasos con error ({names}).",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
+@app.command("backtest-goals-walk-forward-db")
+def backtest_goals_walk_forward_db(
+    divisions: str = typer.Option(
+        "PER1,BRA1,ARG1",
+        help="Divisiones separadas por coma. Dixon-Coles rinde donde no hay cuotas.",
+    ),
+    initial_train_seasons: int = typer.Option(
+        2,
+        min=1,
+        help="Temporadas iniciales de entrenamiento.",
+    ),
+    persist: bool = typer.Option(False, help="Guardar las metricas en PostgreSQL."),
+) -> None:
+    """Walk-forward del modelo de goles Dixon-Coles, comparado con los baselines.
+
+    Los baselines se restringen a las mismas ventanas que Dixon-Coles pudo
+    evaluar. Aun asi el `n` puede diferir: Dixon-Coles omite los partidos con
+    equipos que no vio entrenando (recien ascendidos), asi que dentro de una
+    misma ventana predice menos partidos. La salida lo advierte cuando pasa.
+    """
+    division_codes = [code.strip().upper() for code in divisions.split(",") if code.strip()]
+    if not division_codes:
+        typer.echo("Indica al menos una division.", err=True)
+        raise typer.Exit(1)
+
+    matches = _load_db_match_results(
+        start_season=DEFAULT_BIG_FIVE_START_SEASON,
+        end_season="2627",
+        divisions=division_codes,
+    )
+    if not matches:
+        typer.echo(f"No hay partidos para {', '.join(division_codes)}.", err=True)
+        raise typer.Exit(1)
+
+    goal_metrics: list[WalkForwardMetric] = []
+    goal_predictions: list[WalkForwardPrediction] = []
+    baseline_metrics: list[WalkForwardMetric] = []
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        if len(seasons) <= initial_train_seasons:
+            typer.echo(f"{division}: solo {len(seasons)} temporadas, se omite.", err=True)
+            continue
+        try:
+            goal_metrics += run_goal_model_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+            baseline_metrics += run_expanding_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+            goal_predictions += run_goal_model_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+        except ValueError as exc:
+            typer.echo(f"{division}: {exc}", err=True)
+
+    if not goal_metrics:
+        typer.echo("Dixon-Coles no pudo evaluar ninguna ventana.", err=True)
+        raise typer.Exit(1)
+
+    windows = {(metric.division, metric.evaluation_season) for metric in goal_metrics}
+    comparable = [m for m in baseline_metrics if (m.division, m.evaluation_season) in windows]
+    _echo_walk_forward_summary([*comparable, *goal_metrics])
+
+    goal_n = sum(metric.summary.n_matches for metric in goal_metrics)
+    baseline_n = max(
+        (metric.summary.n_matches for metric in comparable),
+        default=0,
+    ) and sum(m.summary.n_matches for m in comparable if m.summary.model == "elo_simple")
+    if baseline_n and goal_n < baseline_n:
+        typer.echo(
+            f"Aviso: dixon_coles predijo {goal_n} de {baseline_n} partidos "
+            f"({baseline_n - goal_n} con equipos que no vio entrenando). "
+            "Los RPS no estan sobre el mismo conjunto exacto.",
+            err=True,
+        )
+
+    if not persist:
+        typer.echo("Sin --persist: no se escribio nada en PostgreSQL.")
+        return
+    _persist_walk_forward_metrics(goal_metrics)
+    # Congelar tambien por partido: sin esto el modelo puede ser campeon en
+    # "Proximos" pero no tener historial que mostrar en "Resultados".
+    _persist_walk_forward_predictions(goal_predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
+@app.command("altitude-walk-forward-db")
+def altitude_walk_forward_db(
+    divisions: str = typer.Option(
+        "PER1",
+        help="Divisiones con tabla de altitudes. Hoy solo Liga 1 de Peru.",
+    ),
+    initial_train_seasons: int = typer.Option(2, min=1, help="Temporadas de entrenamiento."),
+    advantage_per_km: float = typer.Option(
+        None,
+        help="Puntos Elo de ventaja local por km de desnivel. Por defecto, el calibrado.",
+    ),
+    persist: bool = typer.Option(False, help="Guardar metricas y predicciones en PostgreSQL."),
+) -> None:
+    """Elo con ventaja local ajustada por el desnivel de altitud entre sedes.
+
+    En Liga 1 el desnivel mueve el resultado mas que ningun otro factor visible:
+    con mas de 3.000 m de diferencia el local gana el 59,1% en vez del 42,9%. El
+    efecto es simetrico (viajar a otra altitud perjudica en las dos direcciones),
+    asi que se usa el modulo del desnivel.
+    """
+    division_codes = [code.strip().upper() for code in divisions.split(",") if code.strip()]
+    unknown = [code for code in division_codes if not division_has_altitude(code)]
+    if unknown:
+        typer.echo(
+            f"Sin tabla de altitudes para: {', '.join(unknown)}. "
+            "Anadela en data/altitude.py antes de medir.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    matches = _load_db_match_results(
+        start_season=DEFAULT_BIG_FIVE_START_SEASON,
+        end_season="2627",
+        divisions=division_codes,
+    )
+    if not matches:
+        typer.echo(f"No hay partidos para {', '.join(division_codes)}.", err=True)
+        raise typer.Exit(1)
+
+    known, total, missing = altitude_coverage(
+        [(match.home_team, match.away_team, match.division) for match in matches]
+    )
+    typer.echo(f"cobertura_altitud={known}/{total}")
+    if missing:
+        typer.echo(f"Equipos sin altitud: {', '.join(missing)}", err=True)
+
+    config = (
+        AltitudeEloConfig(advantage_per_km=advantage_per_km)
+        if advantage_per_km is not None
+        else None
+    )
+    metrics: list[WalkForwardMetric] = []
+    predictions: list[WalkForwardPrediction] = []
+    baseline: list[WalkForwardMetric] = []
+    by_division: dict[str, list[MatchResult]] = {}
+    for match in matches:
+        by_division.setdefault(match.division, []).append(match)
+
+    for division, division_matches in sorted(by_division.items()):
+        seasons = sorted({match.season for match in division_matches})
+        if len(seasons) <= initial_train_seasons:
+            typer.echo(f"{division}: solo {len(seasons)} temporadas, se omite.", err=True)
+            continue
+        try:
+            metrics += run_altitude_elo_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+                config=config,
+            )
+            predictions += run_altitude_elo_walk_forward_predictions(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+                config=config,
+            )
+            baseline += run_expanding_walk_forward(
+                division_matches,
+                start_season=seasons[0],
+                end_season=seasons[-1],
+                initial_train_seasons=initial_train_seasons,
+                seasons=seasons,
+            )
+        except ValueError as exc:
+            typer.echo(f"{division}: {exc}", err=True)
+
+    if not metrics:
+        typer.echo("Sin ventanas evaluables.", err=True)
+        raise typer.Exit(1)
+
+    windows = {(metric.division, metric.evaluation_season) for metric in metrics}
+    comparable = [m for m in baseline if (m.division, m.evaluation_season) in windows]
+    _echo_walk_forward_summary([*comparable, *metrics])
+
+    if not persist:
+        typer.echo("Sin --persist: no se escribio nada en PostgreSQL.")
+        return
+    _persist_walk_forward_metrics(metrics)
+    _persist_walk_forward_predictions(predictions)
+    _echo_prediction_evaluation_summary(_evaluate_predictions(commit=True))
+
+
 @app.command("run-weekly")
 def run_weekly(
     start_season: str = typer.Option(
@@ -1587,9 +1835,7 @@ def run_weekly(
         _echo_database_error(settings.database_url, exc)
         raise typer.Exit(1) from exc
 
-    typer.echo("step,status,detail")
-    for result in results:
-        typer.echo(f"{result.name},{result.status},{result.detail}")
+    _echo_pipeline_results(results)
 
 
 @app.command("run-daily")
@@ -1627,9 +1873,52 @@ def run_daily(
         _echo_database_error(settings.database_url, exc)
         raise typer.Exit(1) from exc
 
-    typer.echo("step,status,detail")
-    for result in results:
-        typer.echo(f"{result.name},{result.status},{result.detail}")
+    _echo_pipeline_results(results)
+
+
+@app.command("backup-db")
+def backup_db(
+    out_dir: Path = typer.Option(
+        None,
+        help="Directorio destino. Por defecto backups/postgres/auto/ en la raiz del repo.",
+    ),
+    keep: int = typer.Option(DEFAULT_KEEP, min=1, help="Cuantos dumps conservar."),
+    list_only: bool = typer.Option(False, "--list", help="Solo listar los backups existentes."),
+) -> None:
+    """Saca un pg_dump -Fc de la base y rota los antiguos.
+
+    Es el mismo paso que corren `run-daily` y `run-weekly` al final; este comando
+    sirve para respaldar a mano o revisar que hay guardado.
+    """
+    from futpredict.core.config import settings
+
+    directory = out_dir if out_dir is not None else default_backup_dir()
+
+    if list_only:
+        found = existing_backups(directory)
+        if not found:
+            typer.echo(f"Sin backups en {directory}.")
+            return
+        typer.echo("archivo,mb")
+        for path in found:
+            typer.echo(f"{path.name},{path.stat().st_size / (1024 * 1024):.1f}")
+        typer.echo(f"total: {len(found)} backups en {directory}")
+        return
+
+    try:
+        result = create_database_backup(
+            settings.database_url,
+            out_dir=directory,
+            keep=keep,
+            pg_dump_path=settings.pg_dump_path,
+        )
+    except BackupError as exc:
+        typer.echo(f"Backup fallido: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Backup creado: {result.path} ({result.size_mb:.1f} MB)")
+    if result.removed:
+        typer.echo(f"Rotados {len(result.removed)}: {', '.join(p.name for p in result.removed)}")
 
 
 def _normalized_football_data_uk_batch(

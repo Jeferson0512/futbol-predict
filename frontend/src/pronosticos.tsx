@@ -25,12 +25,23 @@ const SECTIONS: ReadonlyArray<readonly [string, string]> = [
 ];
 const OUT = ["h", "d", "aw"] as const;
 
-// Modelo por liga: los Big-5 tienen mercado; Peru no (usa Elo).
-// Modelo para la vista Resultados/Historial. Por defecto `elo_simple`: es el
-// modelo fresco en TODA liga (no necesita cuotas), así que muestra la temporada
-// en curso. El campeón `market_avg_odds` se queda viejo en la temporada actual
-// mientras no haya cuotas frescas (eso lo arregla API-Football, Fase 9).
-const LEAGUE_MODEL: Record<string, string> = {};
+// Modelo para la vista Resultados/Historial.
+//
+// Por defecto `elo_simple`: es el modelo fresco en TODA liga (no necesita
+// cuotas), así que muestra la temporada en curso. El campeón `market_avg_odds`
+// se queda viejo en la temporada actual mientras no haya cuotas frescas.
+//
+// En las ligas sudamericanas el campeón no es Elo y también está fresco (no
+// necesita cuotas), así que cada una usa el suyo:
+//   PER1 → elo_altitude (0,188): Elo con la ventaja local ajustada por el
+//          desnivel entre sedes. Es el mejor RPS de las 8 ligas.
+//   BRA1 → dixon_coles (0,211 vs 0,212 de Elo)
+//   ARG1 → dixon_coles (0,215 vs 0,216 de Elo)
+const LEAGUE_MODEL: Record<string, string> = {
+  PER1: "elo_altitude",
+  BRA1: "dixon_coles",
+  ARG1: "dixon_coles",
+};
 const modelForLeague = (division: string): string => LEAGUE_MODEL[division] ?? "elo_simple";
 const leagueName = (division: string): string =>
   LEAGUES.find((l) => l[0] === division)?.[1] ?? division;

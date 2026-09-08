@@ -328,7 +328,7 @@ def test_fixture_predictions_endpoint(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         "futpredict.api.routes.model_ranking_rows",
-        lambda session, min_matches: [_ranking_row()],
+        lambda session, min_matches, division_codes: [_ranking_row()],
     )
 
     client = TestClient(create_app())
@@ -339,6 +339,39 @@ def test_fixture_predictions_endpoint(monkeypatch: Any) -> None:
     assert payload["rows"][0]["fixture"]["away_team"] == "Chelsea"
     assert payload["rows"][0]["predictions"][0]["model"] == "market_avg_odds"
     assert payload["rows"][0]["predictions"][0]["is_recommended"] is True
+
+
+def test_fixture_predictions_ranking_is_scoped_to_requested_leagues(monkeypatch: Any) -> None:
+    """`best_available` debe elegir el mejor modelo DE LA LIGA pedida.
+
+    Con el ranking global, los Big-5 (unicos con cuotas) decidian tambien por
+    Peru, Brasil y Argentina, y tapaban al campeon real de esas ligas.
+    """
+    recibido: dict[str, object] = {}
+
+    def fake_rankings(
+        session: Any,
+        min_matches: int,
+        division_codes: list[str] | None,
+    ) -> list[dict[str, object]]:
+        recibido["division_codes"] = division_codes
+        return [_ranking_row()]
+
+    monkeypatch.setattr(
+        "futpredict.api.routes.load_upcoming_fixtures_from_db",
+        lambda session, start_at, end_at, division_codes, limit: [_sample_fixture()],
+    )
+    monkeypatch.setattr(
+        "futpredict.api.routes.load_finished_match_results_before_from_db",
+        lambda session, cutoff_utc, division_codes: _sample_matches(),
+    )
+    monkeypatch.setattr("futpredict.api.routes.model_ranking_rows", fake_rankings)
+
+    client = TestClient(create_app())
+    response = client.get("/fixtures/predictions?days=7&divisions=PER1")
+
+    assert response.status_code == 200
+    assert recibido["division_codes"] == ["PER1"]
 
 
 def _sample_matches() -> list[MatchResult]:
